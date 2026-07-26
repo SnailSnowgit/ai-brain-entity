@@ -44,13 +44,131 @@ import math
 import hashlib
 import os
 from dataclasses import dataclass, asdict
-from typing import List, Dict, Tuple, Optional
+from typing import Callable, List, Dict, Tuple, Optional, Union
 
 
-# ===================== 多模态编码（可选真实模型，自动降级） =====================
+# ===================== 多模态编码（可插拔自定义模型，自动降级） =====================
+#
+# 编码器选择优先级（图像 / 音频相同）：
+#   1. 调用时显式传入的 encoder（callable 或注册名）
+#   2. register_*_encoder 注册的默认自定义编码器
+#   3. 内置真实模型（CLIP / Whisper，模型名可通过 set_*_model 换成自定义微调版）
+#   4. 确定性伪 embedding（无外部模型时兜底，保证通路可运行、可复现）
+#
+# 自定义编码器契约：callable(path: str) -> 数值序列（list / tuple / numpy 数组），
+# 长度任意（进入感官层前会重采样到 16 维）。
 
 _CLIP_CACHE = None      # (model, processor)
 _WHISPER_CACHE = None   # model
+
+_CLIP_MODEL_NAME = "openai/clip-vit-base-patch32"
+_WHISPER_MODEL_NAME = "base"
+
+# 自定义编码器注册表：name -> callable(path) -> 数值序列
+_CUSTOM_IMAGE_ENCODERS: Dict[str, Callable] = {}
+_CUSTOM_AUDIO_ENCODERS: Dict[str, Callable] = {}
+_DEFAULT_IMAGE_ENCODER: Optional[str] = None
+_DEFAULT_AUDIO_ENCODER: Optional[str] = None
+
+
+def register_image_encoder(fn: Callable, name: str = "custom",
+                           default: bool = True) -> str:
+    """注册自定义图像编码器。default=True 时设为全局默认（优先于内置 CLIP）。"""
+    global _DEFAULT_IMAGE_ENCODER
+    if not callable(fn):
+        raise TypeError("encoder 必须是 callable(path) -> 数值序列")
+    _CUSTOM_IMAGE_ENCODERS[name] = fn
+    if default:
+        _DEFAULT_IMAGE_ENCODER = name
+    return name
+
+
+def register_audio_encoder(fn: Callable, name: str = "custom",
+                           default: bool = True) -> str:
+    """注册自定义音频编码器。default=True 时设为全局默认（优先于内置 Whisper）。"""
+    global _DEFAULT_AUDIO_ENCODER
+    if not callable(fn):
+        raise TypeError("encoder 必须是 callable(path) -> 数值序列")
+    _CUSTOM_AUDIO_ENCODERS[name] = fn
+    if default:
+        _DEFAULT_AUDIO_ENCODER = name
+    return name
+
+
+def unregister_image_encoder(name: str) -> None:
+    """注销图像编码器；若注销的是当前默认，回落到内置模型/伪 embedding 链。"""
+    global _DEFAULT_IMAGE_ENCODER
+    _CUSTOM_IMAGE_ENCODERS.pop(name, None)
+    if _DEFAULT_IMAGE_ENCODER == name:
+        _DEFAULT_IMAGE_ENCODER = None
+
+
+def unregister_audio_encoder(name: str) -> None:
+    """注销音频编码器；若注销的是当前默认，回落到内置模型/伪 embedding 链。"""
+    global _DEFAULT_AUDIO_ENCODER
+    _CUSTOM_AUDIO_ENCODERS.pop(name, None)
+    if _DEFAULT_AUDIO_ENCODER == name:
+        _DEFAULT_AUDIO_ENCODER = None
+
+
+def list_encoders() -> Dict[str, Dict[str, object]]:
+    """列出当前已注册的自定义编码器与内置模型名（便于调试/观测台展示）。"""
+    return {
+        "image": {"custom": sorted(_CUSTOM_IMAGE_ENCODERS),
+                  "default": _DEFAULT_IMAGE_ENCODER,
+                  "builtin_model": _CLIP_MODEL_NAME},
+        "audio": {"custom": sorted(_CUSTOM_AUDIO_ENCODERS),
+                  "default": _DEFAULT_AUDIO_ENCODER,
+                  "builtin_model": _WHISPER_MODEL_NAME},
+    }
+
+
+def set_clip_model(model_name: str) -> None:
+    """更换内置图像模型（如自定义微调版 CLIP 的 HF 名称或本地路径）。"""
+    global _CLIP_CACHE, _CLIP_MODEL_NAME
+    if model_name != _CLIP_MODEL_NAME:
+        _CLIP_MODEL_NAME = model_name
+        _CLIP_CACHE = None  # 重置缓存，下次编码时加载新模型
+
+
+def set_whisper_model(model_name: str) -> None:
+    """更换内置音频模型（如 "small"、"large-v3" 或本地微调模型路径）。"""
+    global _WHISPER_CACHE, _WHISPER_MODEL_NAME
+    if model_name != _WHISPER_MODEL_NAME:
+        _WHISPER_MODEL_NAME = model_name
+        _WHISPER_CACHE = None
+
+
+def _resolve_encoder(registry: Dict[str, Callable], default_name: Optional[str],
+                     encoder: Union[str, Callable, None]) -> Optional[Callable]:
+    """解析本次调用应使用的自定义编码器，无则返回 None（走内置链）。"""
+    if encoder is None:
+        return registry.get(default_name) if default_name else None
+    if callable(encoder):
+        return encoder
+    if encoder not in registry:
+        raise KeyError(
+            f"未注册的编码器 {encoder!r}，已注册：{sorted(registry) or '无'}")
+    return registry[encoder]
+
+
+def _coerce_embedding(vec, source: str) -> List[float]:
+    """校验并转换自定义编码器输出为 List[float]。
+
+    与内置模型的"静默降级"策略不同：自定义编码器输出非法属于调用方错误，
+    直接抛出带上下文的异常，避免错误 embedding 静默污染记忆。
+    """
+    if hasattr(vec, "tolist"):  # numpy 数组 / torch 张量
+        vec = vec.tolist()
+    if not isinstance(vec, (list, tuple)):
+        raise TypeError(
+            f"自定义编码器 {source} 必须返回数值序列，实际返回 {type(vec).__name__}")
+    out = []
+    for v in vec:
+        if not isinstance(v, (int, float)):
+            raise TypeError(f"自定义编码器 {source} 返回了非数值元素：{v!r}")
+        out.append(float(v))
+    return out
 
 
 def _file_pseudo_embedding(path: str, dim: int = 512) -> List[float]:
@@ -66,16 +184,19 @@ def _file_pseudo_embedding(path: str, dim: int = 512) -> List[float]:
     return [rng.uniform(-1.0, 1.0) for _ in range(dim)]
 
 
-def encode_image(path: str, dim: int = 512) -> List[float]:
-    """图像 → embedding。优先使用 CLIP（需 pip install transformers pillow torch），
-    不可用时自动降级为伪 embedding。"""
+def encode_image(path: str, dim: int = 512,
+                 encoder: Union[str, Callable, None] = None) -> List[float]:
+    """图像 → embedding。优先级：自定义编码器 > CLIP（可换模型名）> 伪 embedding。"""
+    fn = _resolve_encoder(_CUSTOM_IMAGE_ENCODERS, _DEFAULT_IMAGE_ENCODER, encoder)
+    if fn is not None:
+        return _coerce_embedding(fn(path), getattr(fn, "__name__", repr(fn)))
     global _CLIP_CACHE
     try:
         if _CLIP_CACHE is None:
             from transformers import CLIPModel, CLIPProcessor
             _CLIP_CACHE = (
-                CLIPModel.from_pretrained("openai/clip-vit-base-patch32"),
-                CLIPProcessor.from_pretrained("openai/clip-vit-base-patch32"),
+                CLIPModel.from_pretrained(_CLIP_MODEL_NAME),
+                CLIPProcessor.from_pretrained(_CLIP_MODEL_NAME),
             )
         from PIL import Image
         model, processor = _CLIP_CACHE
@@ -86,14 +207,17 @@ def encode_image(path: str, dim: int = 512) -> List[float]:
         return _file_pseudo_embedding(path, dim)
 
 
-def encode_audio(path: str, dim: int = 512) -> List[float]:
-    """音频 → embedding。优先使用 Whisper 编码器（需 pip install openai-whisper），
-    不可用时自动降级为伪 embedding。"""
+def encode_audio(path: str, dim: int = 512,
+                 encoder: Union[str, Callable, None] = None) -> List[float]:
+    """音频 → embedding。优先级：自定义编码器 > Whisper（可换模型名）> 伪 embedding。"""
+    fn = _resolve_encoder(_CUSTOM_AUDIO_ENCODERS, _DEFAULT_AUDIO_ENCODER, encoder)
+    if fn is not None:
+        return _coerce_embedding(fn(path), getattr(fn, "__name__", repr(fn)))
     global _WHISPER_CACHE
     try:
         if _WHISPER_CACHE is None:
             import whisper
-            _WHISPER_CACHE = whisper.load_model("base")
+            _WHISPER_CACHE = whisper.load_model(_WHISPER_MODEL_NAME)
         import numpy as np
         import torch
         audio = whisper.load_audio(path)
@@ -287,17 +411,23 @@ class AIBrainEntity:
         vmax = max(abs(v) for v in sampled) or 1.0
         return [abs(v) / vmax * 0.8 for v in sampled]
 
-    # ------------------ 多模态接口（v3.0） ------------------
+    # ------------------ 多模态接口（v3.0，v3.1 支持自定义编码器） ------------------
 
-    def perceive_image(self, path: str, label: str = "") -> str:
-        """感知一张图片：CLIP embedding（或降级伪 embedding）→ 感官层"""
-        vec = encode_image(path)
+    def perceive_image(self, path: str, label: str = "",
+                       encoder: Union[str, Callable, None] = None) -> str:
+        """感知一张图片：自定义编码器 / CLIP（或降级伪 embedding）→ 感官层。
+
+        encoder 可传入 callable 或 register_image_encoder 注册的名字；
+        不传则走全局默认（注册的默认自定义编码器 → 内置 CLIP → 伪 embedding）。
+        """
+        vec = encode_image(path, encoder=encoder)
         tag = label or f"<image:{os.path.basename(path)}>"
         return self.sensory_input_vector(vec, label=tag)
 
-    def perceive_audio(self, path: str, label: str = "") -> str:
-        """感知一段音频：Whisper encoder embedding（或降级伪 embedding）→ 感官层"""
-        vec = encode_audio(path)
+    def perceive_audio(self, path: str, label: str = "",
+                       encoder: Union[str, Callable, None] = None) -> str:
+        """感知一段音频：自定义编码器 / Whisper（或降级伪 embedding）→ 感官层"""
+        vec = encode_audio(path, encoder=encoder)
         tag = label or f"<audio:{os.path.basename(path)}>"
         return self.sensory_input_vector(vec, label=tag)
 
@@ -878,6 +1008,25 @@ if __name__ == "__main__":
         f.write(bytes(range(256)) * 4)  # 1KB 测试数据
     print(f"  -> {brain.perceive_image(demo_file, label='一张测试图片')}")
     print(f"  -> {brain.perceive_audio(demo_file, label='一段测试音频')}")
+
+    print("\n--- v3.1 自定义多模态模型：注册自定义编码器 ---")
+    # 自定义编码器契约：callable(path) -> 数值序列（长度任意）
+    def my_image_model(path):
+        """示例自定义图像模型：用文件字节直方图构造 32 维特征"""
+        with open(path, "rb") as f:
+            data = f.read()
+        hist = [0.0] * 32
+        for b in data:
+            hist[b % 32] += 1.0
+        total = sum(hist) or 1.0
+        return [v / total for v in hist]
+
+    register_image_encoder(my_image_model, name="hist32")
+    print(f"  已注册编码器: {list_encoders()['image']}")
+    out = brain.perceive_image(demo_file, label="自定义模型编码的图片")
+    print(f"  -> {out}")
+    print(f"  一次性指定: -> {brain.perceive_image(demo_file, encoder=my_image_model)}")
+    unregister_image_encoder("hist32")  # 注销后回落到内置 CLIP / 伪 embedding 链
     os.remove(demo_file)
 
     print("\n--- v3.0 多巴胺奖励调制学习（强化学习）---")

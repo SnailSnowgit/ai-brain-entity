@@ -35,7 +35,7 @@ STDP 脉冲时序可塑性、多巴胺样奖励强化学习、真实多模态（
 | DNA 遗传 | 记忆传承 | 全状态序列化（突触+记忆+情绪），支持克隆 |
 | **群体智能** | 文化传递 | `BrainSwarm`：记忆跨实体传递、广播、带变异繁衍 |
 | **脉冲思考链** | 可解释性 | `thought_chain()`：把感知→传导→回响→决策展开为可读的脉冲因果链 |
-| 多模态接口 | 感官通道 | CLIP 图像 / Whisper 音频 embedding（未装依赖自动降级伪 embedding） |
+| 多模态接口 | 感官通道 | **可插拔自定义模型**：注册自定义编码器 / 更换 CLIP、Whisper 模型名（未装依赖自动降级伪 embedding） |
 
 ## 快速开始
 
@@ -45,9 +45,8 @@ pip install -r requirements.txt   # 仅实验复现脚本需要（核心模块�
 python ai_brain_entity.py    # 运行内置演示（含 STDP/奖励/多模态/群体演示）
 python swarm.py              # 群体文化传递演示（定向传递+变异+世代链）
 python experiments.py        # 复现实验 1-8（统一入口，生成 figures/ 与 data/ 结果）
-python export_widget_data.py    # 一条命令刷新观测台两个 Widget 的全部数据
 python run_all.py               # 一键全流程：测试 → 演示 → 实验 → 观测数据（--quick 快速模式）
-python -m unittest discover tests  # 运行核心行为测试（16 项）
+python -m unittest discover tests  # 运行核心行为测试（24 项）
 ```
 
 ```python
@@ -64,6 +63,20 @@ brain.sensory_input("奖励关联的刺激")
 brain.perceive_image("cat.jpg", label="一张猫的图片")
 brain.perceive_audio("sound.wav", label="一段语音")
 brain.sensory_input_vector([0.2, -0.5, 0.9, ...], label="任意 embedding")
+
+# 自定义多模态模型（v3.1）：三种接入方式
+# 1) 注册任意自定义编码器：callable(path) -> 数值序列，长度任意
+def my_image_model(path):
+    return my_framework.encode(path)          # 你自己的模型
+register_image_encoder(my_image_model, name="mine")   # 设为全局默认
+brain.perceive_image("cat.jpg")                        # 自动走自定义模型
+brain.perceive_image("cat.jpg", encoder=my_image_model)  # 或一次性指定
+unregister_image_encoder("mine")                       # 注销后回落内置链
+# 2) 更换内置模型名（自定义微调版 CLIP / Whisper，HF 名称或本地路径）
+set_clip_model("path/to/my-finetuned-clip")
+set_whisper_model("large-v3")
+# 3) 查看当前编码器状态
+print(list_encoders())
 
 # 群体智能：文化传递
 swarm = BrainSwarm(["Alpha", "Beta", "Gamma"], seed=1)
@@ -93,7 +106,7 @@ ai_brain/
 ├── export_widget_data.py     # 观测台数据统一入口（依次调用上面两个导出器）
 ├── run_all.py                # 全流程统一入口（测试→演示→实验→观测数据，--quick 快速模式）
 ├── tests/                    # 核心行为测试（纯标准库 unittest）
-│   └── test_ai_brain.py      # 16 项：编码/可塑性/记忆/奖励/DNA/思考链/群体
+│   └── test_ai_brain.py      # 24 项：编码/可塑性/记忆/奖励/DNA/思考链/群体/自定义多模态
 ├── docs/
 │   └── paper.md              # 学术论文（架构+实验+分析，含 v3.0 更新章节）
 ├── data/                     # 运行时数据产物

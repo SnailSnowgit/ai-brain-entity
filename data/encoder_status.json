@@ -1,0 +1,130 @@
+{
+  "meta": {
+    "title": "多模态编码器状态",
+    "version": "v3.1 可插拔自定义多模态模型",
+    "source": "encoder_status.py 本地实测"
+  },
+  "encoders": {
+    "with_custom": {
+      "image": {
+        "custom": [
+          "hist32"
+        ],
+        "default": "hist32",
+        "builtin_model": "openai/clip-vit-base-patch32"
+      },
+      "audio": {
+        "custom": [],
+        "default": null,
+        "builtin_model": "base"
+      }
+    },
+    "builtin": {
+      "image": {
+        "custom": [],
+        "default": null,
+        "builtin_model": "openai/clip-vit-base-patch32"
+      },
+      "audio": {
+        "custom": [],
+        "default": null,
+        "builtin_model": "base"
+      }
+    }
+  },
+  "priority_chain": [
+    "1. 调用时显式传入的 encoder（callable 或注册名）",
+    "2. register_*_encoder 注册的默认自定义编码器",
+    "3. 内置 CLIP / Whisper（模型名可用 set_*_model 换成自定义微调版）",
+    "4. 确定性伪 embedding（无外部模型时兜底，可复现）"
+  ],
+  "contract": "callable(path) -> 数值序列（长度任意，进感官层前重采样到 16 维）",
+  "probe": {
+    "sample_bytes": 848,
+    "custom": {
+      "name": "hist32（自定义字节直方图模型）",
+      "embedding": {
+        "dim": 32,
+        "mean": 0.0312,
+        "min": 0.0,
+        "max": 0.1321,
+        "head": [
+          0.0566,
+          0.0566,
+          0.0377,
+          0.0189,
+          0.0755,
+          0.1321,
+          0.1132,
+          0.0943
+        ]
+      },
+      "sensory_current_16": [
+        0.4138,
+        0.2667,
+        0.6069,
+        0.8,
+        0.5793,
+        0.0,
+        0.0828,
+        0.1379,
+        0.0736,
+        0.1103,
+        0.0,
+        0.2391,
+        0.1103,
+        0.1379,
+        0.0184,
+        0.0
+      ]
+    },
+    "builtin": {
+      "name": "内置链（CLIP 不可用时 = 伪 embedding）",
+      "embedding": {
+        "dim": 512,
+        "mean": -0.0252,
+        "min": -0.9919,
+        "max": 0.9917,
+        "head": [
+          -0.4178,
+          0.1389,
+          -0.7781,
+          0.0484,
+          -0.3925,
+          -0.9207,
+          -0.7644,
+          -0.8716
+        ]
+      },
+      "sensory_current_16": [
+        0.3622,
+        0.2364,
+        0.2064,
+        0.3701,
+        0.0633,
+        0.0607,
+        0.5417,
+        0.2723,
+        0.4028,
+        0.2764,
+        0.7049,
+        0.218,
+        0.6448,
+        0.8,
+        0.4496,
+        0.1242
+      ]
+    }
+  },
+  "exp8": {
+    "similarity_ranking": {
+      "相似对·变体1": 0.978,
+      "相似对·变体2": 0.954,
+      "不同对象": 0.823,
+      "随机向量": 0.739
+    },
+    "e2e": "[exp8-e2e | tick=1] 决策=静默观察 | 主导情绪=平静(cur=0.28, str=0.00, calm=0.86) | 决策层脉冲=0/8",
+    "smoke": "[exp8-file | tick=1] 决策=静默观察 | 主导情绪=平静(cur=0.28, str=0.00, calm=0.86) | 决策层脉冲=0/8",
+    "interpretation": "重采样通路保持分段结构 embedding 的相似性排序；注1：abs 归一化丢失符号信息，抬高了不相关对的基线相似度；注2：稠密 iid embedding 在 16 维插值重采样下会扁平化，未来可换可学习投影替代线性插值"
+  }
+}

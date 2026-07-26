@@ -4,13 +4,20 @@
 运行：
     python -m unittest discover tests -v
 """
+import os
 import sys
 import unittest
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
-from ai_brain_entity import AIBrainEntity, BrainSwarm
+from ai_brain_entity import (
+    AIBrainEntity, BrainSwarm,
+    encode_image, encode_audio,
+    register_image_encoder, register_audio_encoder,
+    unregister_image_encoder, unregister_audio_encoder,
+    list_encoders,
+)
 
 
 class TestSensoryEncoding(unittest.TestCase):
@@ -160,6 +167,105 @@ class TestSwarm(unittest.TestCase):
         swarm = BrainSwarm(["A", "B", "C"], seed=1)
         outs = swarm.broadcast("公共事件")
         self.assertEqual(len(outs), 3)
+
+
+class TestCustomMultimodal(unittest.TestCase):
+    """v3.1 自定义多模态模型：注册表、优先级链、输出校验"""
+
+    def setUp(self):
+        # 隔离注册表，避免测试间相互污染
+        import ai_brain_entity as m
+        self._module = m
+        self._saved = (
+            dict(m._CUSTOM_IMAGE_ENCODERS), m._DEFAULT_IMAGE_ENCODER,
+            dict(m._CUSTOM_AUDIO_ENCODERS), m._DEFAULT_AUDIO_ENCODER,
+        )
+        m._CUSTOM_IMAGE_ENCODERS.clear()
+        m._CUSTOM_AUDIO_ENCODERS.clear()
+        m._DEFAULT_IMAGE_ENCODER = None
+        m._DEFAULT_AUDIO_ENCODER = None
+
+    def tearDown(self):
+        m = self._module
+        img, img_d, aud, aud_d = self._saved
+        m._CUSTOM_IMAGE_ENCODERS.clear(); m._CUSTOM_IMAGE_ENCODERS.update(img)
+        m._CUSTOM_AUDIO_ENCODERS.clear(); m._CUSTOM_AUDIO_ENCODERS.update(aud)
+        m._DEFAULT_IMAGE_ENCODER = img_d
+        m._DEFAULT_AUDIO_ENCODER = aud_d
+
+    def _tmp_file(self):
+        import tempfile
+        fd, path = tempfile.mkstemp(suffix=".bin")
+        with os.fdopen(fd, "wb") as f:
+            f.write(b"hello multimodal" * 8)
+        self.addCleanup(os.remove, path)
+        return path
+
+    def test_registered_default_encoder_wins(self):
+        """注册的默认自定义编码器优先于内置 CLIP / 伪 embedding"""
+        path = self._tmp_file()
+        register_image_encoder(lambda p: [0.5] * 32, name="t32")
+        vec = encode_image(path)
+        self.assertEqual(vec, [0.5] * 32)
+
+    def test_explicit_encoder_arg_overrides_default(self):
+        """调用时显式传入的 encoder 优先于注册的默认编码器"""
+        path = self._tmp_file()
+        register_image_encoder(lambda p: [1.0] * 8, name="d8")
+        vec = encode_image(path, encoder=lambda p: [2.0] * 4)
+        self.assertEqual(vec, [2.0] * 4)
+        # 也支持按注册名指定
+        register_image_encoder(lambda p: [3.0] * 4, name="other")
+        self.assertEqual(encode_image(path, encoder="other"), [3.0] * 4)
+
+    def test_unregister_falls_back_to_pseudo(self):
+        """注销默认编码器后回落到内置链（无依赖环境 = 伪 embedding）"""
+        path = self._tmp_file()
+        register_image_encoder(lambda p: [0.5] * 32, name="t32")
+        unregister_image_encoder("t32")
+        vec = encode_image(path)          # 无 transformers 环境 → 512 维伪 embedding
+        self.assertEqual(len(vec), 512)
+        self.assertNotEqual(vec, [0.5] * 32)
+
+    def test_audio_encoder_and_listing(self):
+        path = self._tmp_file()
+        register_audio_encoder(lambda p: [0.1, 0.2], name="a2")
+        self.assertEqual(encode_audio(path), [0.1, 0.2])
+        info = list_encoders()
+        self.assertEqual(info["audio"]["default"], "a2")
+        self.assertIn("a2", info["audio"]["custom"])
+        unregister_audio_encoder("a2")
+        self.assertIsNone(list_encoders()["audio"]["default"])
+
+    def test_unknown_encoder_name_raises(self):
+        with self.assertRaises(KeyError):
+            encode_image(self._tmp_file(), encoder="not-registered")
+
+    def test_invalid_encoder_output_raises(self):
+        """自定义编码器返回非法输出属于调用方错误，直接抛出而非静默降级"""
+        path = self._tmp_file()
+        with self.assertRaises(TypeError):
+            encode_image(path, encoder=lambda p: "not-a-vector")
+        with self.assertRaises(TypeError):
+            encode_image(path, encoder=lambda p: [1.0, "bad", 3.0])
+
+    def test_numpy_like_output_accepted(self):
+        """支持带 tolist() 的输出（numpy 数组 / torch 张量）"""
+        class FakeArray:
+            def tolist(self):
+                return [0.7] * 16
+        vec = encode_image(self._tmp_file(), encoder=lambda p: FakeArray())
+        self.assertEqual(vec, [0.7] * 16)
+
+    def test_perceive_image_uses_custom_encoder(self):
+        """perceive_image 把自定义 encoder 的输出送入感官层并可被观测"""
+        brain = AIBrainEntity("t", seed=42)
+        path = self._tmp_file()
+        out = brain.perceive_image(path, label="自定义图",
+                                   encoder=lambda p: [0.9] * 64)
+        self.assertIsInstance(out, str)
+        # 64 维自定义 embedding 应被重采样为 16 路感官电流
+        self.assertEqual(len(brain._normalize_vector([0.9] * 64, 16)), 16)
 
 
 if __name__ == "__main__":

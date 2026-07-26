@@ -1,2 +1,11 @@
 __pycache__/
 *.pyc
+
+# 模型权重不进版本库（models/ 目录下的结构与代码仍纳入管理）
+*.pt
+*.pth
+*.bin
+*.safetensors
+*.onnx
+*.ckpt
+*.gguf
