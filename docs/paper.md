@@ -144,8 +144,8 @@ $$\alpha = \text{clip}_{[0.1,1]}(0.6 + 0.25\,\text{curiosity} - 0.3\,\text{stres
 
 ## 4 实验
 
-所有实验代码与数据开源（实验一至四见 `experiments.py`，实验五至八见
-`experiments_v3.py`），随机种子固定，结果可完整复现。
+所有实验代码与数据开源（实验一至八统一见 `experiments.py`），
+随机种子固定，结果可完整复现。
 
 ### 4.1 实验一：赫布学习的有效性
 
@@ -357,6 +357,5 @@ Putnam, 1994.
 ---
 
 **代码与数据可用性**：完整实现见 `ai_brain_entity.py`（零依赖），实验
-复现脚本见 `experiments.py`（实验一至四）与 `experiments_v3.py`
-（实验五至八），实验数据分别见 `data/experiment_results.json` 与
-`data/experiment_results_v3.json`。
+一至八的复现脚本统一见 `experiments.py`，实验数据分别见
+`data/experiment_results.json` 与 `data/experiment_results_v3.json`。
