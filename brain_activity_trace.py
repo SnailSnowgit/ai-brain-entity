@@ -77,7 +77,9 @@ trace = {
     "frames": frames,
 }
 
-out_path = BASE / "brain_activity_trace.json"
+DATA = BASE / "data"
+DATA.mkdir(exist_ok=True)
+out_path = DATA / "brain_activity_trace.json"
 with open(out_path, "w", encoding="utf-8") as f:
     json.dump(trace, f, ensure_ascii=False, separators=(",", ":"))
 print(f"frames={len(frames)}  outputs={len(outputs)}  -> {out_path}")

@@ -320,7 +320,9 @@ RESULTS["exp4"] = {
 }
 
 # ===================== 汇总 =====================
-with open(BASE / "experiment_results.json", "w", encoding="utf-8") as f:
+DATA = BASE / "data"
+DATA.mkdir(exist_ok=True)
+with open(DATA / "experiment_results.json", "w", encoding="utf-8") as f:
     json.dump(RESULTS, f, ensure_ascii=False, indent=2)
 
 print("\n===== 基础机制实验结果摘要 =====")

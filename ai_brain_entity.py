@@ -596,14 +596,14 @@ class AIBrainEntity:
         即刚听到的内容立即被当作联想结果返回。
         """
         stm = self.short_memory[:-1] if exclude_latest else self.short_memory
-        hits = [m for m in self.long_memory + stm if keyword in m.content]
-        hits.sort(key=lambda m: m.weight, reverse=True)
-        # 去重（同一内容可能在 LTM 与 STM 各有一份）
+        # 去重：同一内容可能在 LTM 与 STM 各有一份，优先保留 LTM 副本——
+        # LTM 是规范存储，再巩固应作用于它而非转瞬即逝的 STM 重复件
         seen, unique = set(), []
-        for m in hits:
-            if m.content not in seen:
+        for m in self.long_memory + stm:
+            if keyword in m.content and m.content not in seen:
                 seen.add(m.content)
                 unique.append(m)
+        unique.sort(key=lambda m: m.weight, reverse=True)
         for m in unique[:top_k]:
             m.weight = self._clip(m.weight + 0.05)  # 回忆强化
         return unique[:top_k]
@@ -923,7 +923,8 @@ if __name__ == "__main__":
     print(brain.status())
 
     print("\n--- DNA 记忆遗传：保存并克隆实体 ---")
-    dna_path = "brain_dna.json"
+    os.makedirs("data", exist_ok=True)
+    dna_path = os.path.join("data", "brain_dna.json")
     brain.save_dna(dna_path)
     clone = AIBrainEntity.load_dna(dna_path, new_name="Brain-02")
     print(f"  克隆体 {clone.name} 继承了 LTM={len(clone.long_memory)} 条长期记忆")

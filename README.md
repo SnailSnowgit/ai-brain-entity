@@ -46,6 +46,8 @@ python ai_brain_entity.py    # 运行内置演示（含 STDP/奖励/多模态/�
 python swarm.py              # 群体文化传递演示（定向传递+变异+世代链）
 python experiments.py        # 复现实验 1-4
 python experiments_v3.py     # 复现 v3.0 新机制实验 5-8
+python brain_activity_trace.py  # 录制大脑活动逐帧数据（供可视化回放）
+python -m unittest discover tests  # 运行核心行为测试（16 项）
 ```
 
 ```python
@@ -88,6 +90,16 @@ ai_brain/
 ├── experiments.py            # 实验 1-4（基础机制，生成 figures/）
 ├── experiments_v3.py         # 实验 5-8（v3.0 新机制验证）
 ├── thought_chain_figure.py   # 脉冲思考链传播图（生成 figures/thought_chain.png）
+├── brain_activity_trace.py   # 大脑活动逐帧追踪导出（供可视化 Widget 回放）
+├── tests/                    # 核心行为测试（纯标准库 unittest）
+│   └── test_ai_brain.py      # 16 项：编码/可塑性/记忆/奖励/DNA/思考链/群体
+├── docs/
+│   └── paper.md              # 学术论文（架构+实验+分析，含 v3.0 更新章节）
+├── data/                     # 运行时数据产物
+│   ├── experiment_results.json    # 实验 1-4 数据
+│   ├── experiment_results_v3.json # 实验 5-8 数据
+│   ├── brain_activity_trace.json  # 大脑活动追踪（Widget 回放数据）
+│   └── brain_dna.json             # 演示生成的 DNA 快照
 ├── figures/                  # 实验图表
 │   ├── exp1_hebbian.png      # 突触可塑性开关对照
 │   ├── exp2_memory.png       # 记忆固化与遗忘
@@ -98,15 +110,11 @@ ai_brain/
 │   ├── exp7_swarm.png        # 文化跨代传递
 │   ├── exp8_multimodal.png   # embedding 相似性保持
 │   └── thought_chain.png     # 脉冲思考链传播图
-├── experiment_results.json   # 实验 1-4 数据
-├── experiment_results_v3.json# 实验 5-8 数据
-├── brain_dna.json            # 演示生成的 DNA 快照（运行时产物）
 ├── requirements.txt          # 实验脚本依赖（核心模块零依赖）
-├── paper.md                  # 学术论文（架构+实验+分析，含 v3.0 更新章节）
 └── README.md
 ```
 
-## 关键实验结论（详见 paper.md）
+## 关键实验结论（详见 docs/paper.md）
 
 **基础机制（实验 1-4）**
 
