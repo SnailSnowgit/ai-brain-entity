@@ -357,5 +357,5 @@ Putnam, 1994.
 ---
 
 **代码与数据可用性**：完整实现见 `ai_brain_entity.py`（零依赖），实验
-一至八的复现脚本统一见 `experiments.py`，实验数据分别见
-`data/experiment_results.json` 与 `data/experiment_results_v3.json`。
+一至八的复现脚本统一见 `experiments.py`，实验数据统一见
+`data/experiment_results.json`（含 exp1 至 exp8 全部结果）。

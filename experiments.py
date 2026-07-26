@@ -649,15 +649,9 @@ RESULTS["exp8"] = {
 # ===================== 汇总 =====================
 DATA = BASE / "data"
 DATA.mkdir(exist_ok=True)
-RESULTS_BASIC = {k: RESULTS[k] for k in ("exp1", "exp2", "exp3", "exp4")}
-RESULTS_V3 = {k: RESULTS[k] for k in ("exp5", "exp6", "exp7", "exp8")}
 with open(DATA / "experiment_results.json", "w", encoding="utf-8") as f:
-    json.dump(RESULTS_BASIC, f, ensure_ascii=False, indent=2)
-with open(DATA / "experiment_results_v3.json", "w", encoding="utf-8") as f:
-    json.dump(RESULTS_V3, f, ensure_ascii=False, indent=2)
+    json.dump(RESULTS, f, ensure_ascii=False, indent=2)
 
-print("\n===== 实验 1-4（基础机制）结果摘要 =====")
-print(json.dumps(RESULTS_BASIC, ensure_ascii=False, indent=2))
-print("\n===== 实验 5-8（v3.0 新机制）结果摘要 =====")
-print(json.dumps(RESULTS_V3, ensure_ascii=False, indent=2))
+print("\n===== 实验 1-8 结果摘要 =====")
+print(json.dumps(RESULTS, ensure_ascii=False, indent=2))
 print(f"\n图表已保存至: {FIG}")

@@ -95,8 +95,7 @@ ai_brain/
 ├── docs/
 │   └── paper.md              # 学术论文（架构+实验+分析，含 v3.0 更新章节）
 ├── data/                     # 运行时数据产物
-│   ├── experiment_results.json    # 实验 1-4 数据
-│   ├── experiment_results_v3.json # 实验 5-8 数据
+│   ├── experiment_results.json    # 实验 1-8 数据（统一输出）
 │   ├── brain_activity_trace.json  # 大脑活动追踪（Widget 回放数据，预生成）
 │   └── brain_dna.json             # 演示生成的 DNA 快照
 ├── figures/                  # 实验图表
