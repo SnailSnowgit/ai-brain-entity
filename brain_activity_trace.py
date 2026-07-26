@@ -58,6 +58,26 @@ for s in STIMULI:
 brain.free_run(4)  # 尾声：观察回响衰减
 brain._network_step = orig_step
 
+# 为每个 tick 生成可读的脉冲思考链（与 thought_chain 同构），
+# 供可视化面板随播放进度逐行高亮"大脑在想什么"
+NSTEPS = 1 + brain.settle_ticks   # 每 tick 的网络步数（刺激步 + 回响步）
+for o in outputs:
+    f0 = o["frame"]
+    lines = [f"1. 感官编码：{o['stimulus']!r} → 16 维输入电流"]
+    for i in range(NSTEPS):
+        fr = frames[f0 + i]
+        ns, na, nd = (len(x) for x in fr["spk"])
+        if i == 0:
+            lines.append(f"2. 刺激步：感官层 {ns}/16 → 联想层 {na}/32"
+                         f"（突触汇集） → 决策层 {nd}/8")
+        else:
+            silent = "（回声衰减，趋于静息）" if not (ns or na or nd) else ""
+            lines.append(f"{i + 2}. 回响+{i}：感官 {ns} / 联想 {na} / "
+                         f"决策 {nd}{silent}")
+    lines.append(f"{NSTEPS + 2}. 决策输出：{o['output']}")
+    o["chain"] = lines
+    o["n_frames"] = NSTEPS
+
 # 邻接表（突触连接）：前神经元 -> [后神经元]
 def adj(out_dict):
     return {str(k): v for k, v in sorted(out_dict.items())}
