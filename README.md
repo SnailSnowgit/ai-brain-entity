@@ -45,8 +45,7 @@ pip install -r requirements.txt   # 仅实验复现脚本需要（核心模块�
 python ai_brain_entity.py    # 运行内置演示（含 STDP/奖励/多模态/群体演示）
 python swarm.py              # 群体文化传递演示（定向传递+变异+世代链）
 python experiments.py        # 复现实验 1-8（统一入口，生成 figures/ 与 data/ 结果）
-python brain_activity_trace.py  # 生成大脑活动追踪数据（观测台 Widget 回放源）
-python thought_chain_scenarios.py  # 生成脉冲思考链三场景数据（Spike CoT Widget 数据源）
+python export_widget_data.py    # 一条命令刷新观测台两个 Widget 的全部数据
 python -m unittest discover tests  # 运行核心行为测试（16 项）
 ```
 
@@ -90,6 +89,7 @@ ai_brain/
 ├── experiments.py            # 实验 1-8（统一复现，生成 figures/）
 ├── brain_activity_trace.py   # 大脑活动追踪导出（每步膜电位/脉冲/情绪/记忆 → data/）
 ├── thought_chain_scenarios.py  # 脉冲思考链三场景导出（Spike CoT 对照实验 → data/）
+├── export_widget_data.py     # 观测台数据统一入口（依次调用上面两个导出器）
 ├── tests/                    # 核心行为测试（纯标准库 unittest）
 │   └── test_ai_brain.py      # 16 项：编码/可塑性/记忆/奖励/DNA/思考链/群体
 ├── docs/
