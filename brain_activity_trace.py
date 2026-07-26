@@ -50,13 +50,28 @@ def main() -> None:
         })
     brain._network_step = wrapped
 
+    def backfill(start: int) -> None:
+        """tick 结束后，把该 tick 所有帧的 tick 级状态回填为更新后的值。
+        _perceive/free_run 中 emo/att/dopa/stm/ltm 在全部网络步之后才更新，
+        wrapped() 录帧时这些量还是上一 tick 的旧值（时序错位），必须回填。"""
+        for fr in frames[start:]:
+            fr["emo"] = {k: round(v, 3) for k, v in brain.emotion.items()}
+            fr["att"] = round(brain.attention_factor, 3)
+            fr["dopa"] = round(brain.dopamine, 3)
+            fr["stm"] = len(brain.short_memory)
+            fr["ltm"] = len(brain.long_memory)
+
     outputs = []
     for s in STIMULI:
         n_frames_before = len(frames)
         out = brain.sensory_input(s)
+        backfill(n_frames_before)   # 回填本 tick 全部帧的 tick 级状态
         outputs.append({"tick": brain.tick, "stimulus": s,
                         "output": out, "frame": n_frames_before})
-    brain.free_run(4)  # 尾声：观察回响衰减
+    for _ in range(4):              # 尾声：观察回响衰减（逐 tick 回填）
+        n_frames_before = len(frames)
+        brain.free_run(1)
+        backfill(n_frames_before)
     brain._network_step = orig_step
 
     # 为每个 tick 生成可读的脉冲思考链（与 thought_chain 同构），
