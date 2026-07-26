@@ -1,3 +1,14 @@
+# 核心模块（ai_brain_entity.py / swarm.py / tests/）零依赖，仅需 Python 3.8+ 标准库。
+# 以下依赖仅供实验与可视化脚本（experiments.py / experiments_v3.py /
+# thought_chain_figure.py）绘图与汇总使用：
 matplotlib>=3.5
 seaborn>=0.12
 pandas>=1.3
+
+# ============ 可选依赖（不装也能完整运行）============
+# 真实多模态编码（perceive_image / perceive_audio）：
+# 未安装时自动降级为确定性哈希伪 embedding，核心功能与实验全部不受影响。
+# transformers>=4.30   # CLIP 图像 embedding
+# torch>=2.0           # CLIP/Whisper 推理后端
+# pillow>=9.0          # 图像解码
+# openai-whisper       # 音频 embedding
