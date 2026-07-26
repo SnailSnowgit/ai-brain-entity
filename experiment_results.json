@@ -1,0 +1,42 @@
+{
+  "exp1": {
+    "ticks": 120,
+    "final_synapse_mean_on": 0.7606,
+    "final_synapse_mean_off": 0.351,
+    "strong_synapses_on": 644,
+    "strong_synapses_off": 153,
+    "interpretation": "循环刺激反复同步激活相同神经通路，LTP 项主导权重演化；关闭可塑性后突触始终停留在初始分布——验证实体的经验驱动结构可塑性"
+  },
+  "exp2": {
+    "stimuli_stage_a": 64,
+    "reinforce_stage_b": 25,
+    "ltm_after_stage_ab": 65,
+    "important_event_weight": 1.0,
+    "decay_gamma": 0.985,
+    "decay_rounds": 400,
+    "ltm_survivors_final": 0,
+    "half_life_rounds": 47,
+    "first_death_round": 172,
+    "interpretation": "STM 饱和后权重达标条目持续固化入 LTM；指数衰减下LTM 平均权重呈类艾宾浩斯曲线，条目自特定轮次起按权重升序消亡——最弱的记忆最先被遗忘，反复强化的记忆存活最久"
+  },
+  "exp3": {
+    "ticks": 150,
+    "attention_range": [
+      0.621,
+      0.682
+    ],
+    "final_emotion": {
+      "calm": 0.958,
+      "curiosity": 0.085,
+      "stress": 0.0,
+      "pleasure": 0.123
+    },
+    "interpretation": "好奇心随高强度刺激持续上升，压力缓慢积累；情绪衰减项（2%/tick）与 clip 约束保证注意力因子在窄区间内受控波动，闭环无正反馈发散"
+  },
+  "exp4": {
+    "ticks": 80,
+    "total_spikes": 2883,
+    "mean_spike_rate": 0.644,
+    "interpretation": "光栅图呈现层间因果链——感官层稀疏放电经突触汇集后在联想层诱发密集同步放电，进而驱动决策层激活；固定语句与噪声区间在感官层呈现可区分的放电指纹"
+  }
+}
