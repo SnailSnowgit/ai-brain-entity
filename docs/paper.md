@@ -317,9 +317,8 @@ v3.0 复验中发现并修复了两处 v2.1 引入的核心缺陷：
 
 链条清晰呈现了 v2.1 引入的两项动力学性质：感官层的稀疏放电经
 突触汇集在联想层被放大（**突触汇集效应**）；刺激撤除后循环连接
-维持的回响逐网络步衰减（**回声混响**）。配套脚本
-`thought_chain_figure.py` 将该过程可视化为按网络步展开的时序
-传播图（图 thought_chain）。这一机制为实体的行为输出提供了
+维持的回响逐网络步衰减（**回声混响**）。该过程已可视化为按网络步
+展开的时序传播图（图 thought_chain）。这一机制为实体的行为输出提供了
 逐步可审计的解释通路，也为后续"决策归因"（哪个神经元集群主导了
 某次响应）类研究提供了数据接口。
 
@@ -360,5 +359,4 @@ Putnam, 1994.
 **代码与数据可用性**：完整实现见 `ai_brain_entity.py`（零依赖），实验
 复现脚本见 `experiments.py`（实验一至四）与 `experiments_v3.py`
 （实验五至八），实验数据分别见 `data/experiment_results.json` 与
-`data/experiment_results_v3.json`，脉冲思考链可视化见
-`thought_chain_figure.py`。
+`data/experiment_results_v3.json`。

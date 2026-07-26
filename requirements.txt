@@ -1,6 +1,5 @@
 # 核心模块（ai_brain_entity.py / swarm.py / tests/）零依赖，仅需 Python 3.8+ 标准库。
-# 以下依赖仅供实验与可视化脚本（experiments.py / experiments_v3.py /
-# thought_chain_figure.py）绘图与汇总使用：
+# 以下依赖仅供实验复现脚本（experiments.py / experiments_v3.py）绘图与汇总使用：
 matplotlib>=3.5
 seaborn>=0.12
 pandas>=1.3
