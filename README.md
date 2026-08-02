@@ -12,7 +12,6 @@ v4.3 多模因竞争（垄断 vs 极化）；v4.4 TD(λ) 资格迹；
 v4.5 执行器技能学习；v4.6 检索式语言生成；
 v4.7 情景记忆时间索引；v4.8 睡眠-清醒节律（SHY）；
 v4.9 好奇驱动探索——感知、学习、记忆、行动、社会、节律的全栈类脑仿真。
-v5.0 起移植 BrainCog 脑认知功能范式：果蝇蘑菇体冲突决策（R-STDP + APL/DA 非线性）。
 
 ## 它是什么
 
@@ -266,10 +265,8 @@ ai_brain/
 ├── thought_chain_scenarios.py  # 脉冲思考链三场景导出（Spike CoT 对照实验 → data/）
 ├── encoder_status.py         # 多模态编码器状态导出（v3.1 自定义模型通路 → data/）
 ├── run_all.py                # 全流程统一入口（测试→演示→实验→观测数据，--quick 快速模式）
-├── drosophila_decision.py    # 果蝇蘑菇体冲突决策 SNN（BrainCog 范式零依赖复刻，v5.0）
 ├── tests/                    # 核心行为测试（纯标准库 unittest）
-│   ├── test_ai_brain.py      # 100 项：编码/可塑性/记忆/奖励/DNA/思考链/群体/多模态/v4.0~v4.9
-│   └── test_drosophila.py    # 9 项：果蝇决策范式（刺激/训练/PI 曲线/非线性开关）
+│   └── test_ai_brain.py      # 100 项：编码/可塑性/记忆/奖励/DNA/思考链/群体/多模态/v4.0~v4.9
 ├── docs/
 │   └── paper.md              # 学术论文（架构+实验+分析，含 v3.0 更新章节）
 ├── data/                     # 运行时数据产物
@@ -290,8 +287,7 @@ ai_brain/
 │   ├── exp6_dopamine.png     # 多巴胺奖励调制
 │   ├── exp7_swarm.png        # 文化跨代传递
 │   ├── exp8_multimodal.png   # embedding 相似性保持
-│   ├── thought_chain.png     # 脉冲思考链传播图
-│   └── drosophila_pi.png     # 果蝇冲突决策 PI 曲线（线性 vs 非线性）
+│   └── thought_chain.png     # 脉冲思考链传播图
 ├── requirements.txt          # 实验脚本依赖（核心模块零依赖）
 └── README.md
 ```
@@ -319,17 +315,6 @@ ai_brain/
 - **多模态通路保持相似性排序**：embedding 经 16 维重采样后，相似对
   (0.98/0.95) > 不同对象 (0.82) > 随机 (0.74)；同时发现 abs 归一化
   丢失符号信息、稠密 embedding 插值扁平化两个通路局限。
-
-**v5.0 BrainCog 范式移植（果蝇冲突决策）**
-
-- **R-STDP 学到趋避关联**：KC-MBON 权重经奖励调制迹训练后按 L1 行归一，
-  安全线索（绿/正立T）对应 KC 驱动动作 1（≈+1.0），危险线索（蓝/倒立T）
-  对应 KC 驱动动作 0（≈+1.0），无关 KC 保持 0.5/0.5 中立。
-- **线性网络决策渐变**：冲突刺激下 PI 随颜色浓度从 +1.0 平滑降至 −0.5，
-  低浓度危险形状主导、高浓度安全色主导，c≈0.4 处出现决策翻转。
-- **APL+DA 产生非线性开关**：加入 APL 反馈抑制与多巴胺脉冲后，PI 曲线
-  变为接近全有/全无的 sigmoid（c≤0.3 时 PI≈+1.0，c≥0.6 时 PI≈−1.0），
-  复现 Zhao et al. (2020, Scientific Reports) 的核心发现。
 
 ## 扩展方向
 
