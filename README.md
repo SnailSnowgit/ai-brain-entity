@@ -76,7 +76,8 @@ python swarm.py              # 群体文化传递演示（定向传递+变异+�
 python experiments.py        # 复现实验 1-8（统一入口，生成 figures/ 与 data/ 结果）
 python encoder_status.py        # 观测台编码器面板数据（另两个导出器：brain_activity_trace / thought_chain_scenarios）
 python run_all.py               # 一键全流程：测试 → 演示 → 实验 → 观测数据（--quick 快速模式）
-python -m unittest discover tests  # 运行核心行为测试（100 项）
+python nomniglot_demo.py        # N-Omniglot 真实事件数据驱动演示（v5.1）
+python -m unittest discover tests  # 运行核心行为测试（117 项）
 ```
 
 ```python
@@ -239,6 +240,19 @@ hab_brain = AIBrainEntity("Hab", seed=1, habituation_rate=0.5)
 for i in range(5):
     hab_brain.sensory_input("反复出现的广告")
     # novelty 逐次降低：0.70 → 0.47 → 0.35 → 0.28 → 0.23
+
+# ===== v5.1 真实神经形态数据：N-Omniglot =====
+# 首次使用拉取原始数据（约 2.5GB，断点续传）：
+#   python download_nomniglot.py bg2
+#   解压 rar 到 data/nomniglot_raw/ 后：
+#   python export_nomniglot.py    # aedat4 -> data/nomniglot_latin.json
+from nomniglot import load, few_shot_split, sample_to_vector
+samples = load()["samples"]                    # 13 类 × 10 真实笔画事件样本
+support, query = few_shot_split(samples, k_shot=5, seed=7)
+for s in support:
+    brain.sensory_input_vector(sample_to_vector(s),
+                               label=f"拉丁字符{s['class']:02d}")
+    brain.reward(0.6)                          # 奖励调制学习
 
 # 群体智能：文化传递
 swarm = BrainSwarm(["Alpha", "Beta", "Gamma"], seed=1)
