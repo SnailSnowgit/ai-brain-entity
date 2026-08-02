@@ -1,55 +1,55 @@
 {
   "exp1": {
     "ticks": 120,
-    "final_synapse_mean_on": 0.7606,
+    "final_synapse_mean_on": 0.7249,
     "final_synapse_mean_off": 0.351,
-    "strong_synapses_on": 644,
+    "strong_synapses_on": 611,
     "strong_synapses_off": 153,
     "interpretation": "循环刺激反复同步激活相同神经通路，LTP 项主导权重演化；关闭可塑性后突触始终停留在初始分布——验证实体的经验驱动结构可塑性"
   },
   "exp2": {
     "stimuli_stage_a": 64,
     "reinforce_stage_b": 25,
-    "ltm_after_stage_ab": 65,
+    "ltm_after_stage_ab": 45,
     "important_event_weight": 1.0,
     "decay_gamma": 0.985,
     "decay_rounds": 400,
     "ltm_survivors_final": 0,
     "half_life_rounds": 47,
-    "first_death_round": 172,
+    "first_death_round": 175,
     "interpretation": "STM 饱和后权重达标条目持续固化入 LTM；指数衰减下LTM 平均权重呈类艾宾浩斯曲线，条目自特定轮次起按权重升序消亡——最弱的记忆最先被遗忘，反复强化的记忆存活最久"
   },
   "exp3": {
     "ticks": 150,
     "attention_range": [
-      0.621,
-      0.682
+      0.586,
+      0.701
     ],
     "final_emotion": {
-      "calm": 0.958,
-      "curiosity": 0.085,
+      "calm": 0.999,
+      "curiosity": 0.002,
       "stress": 0.0,
-      "pleasure": 0.123
+      "pleasure": 0.131
     },
     "interpretation": "好奇心随高强度刺激持续上升，压力缓慢积累；情绪衰减项（2%/tick）与 clip 约束保证注意力因子在窄区间内受控波动，闭环无正反馈发散"
   },
   "exp4": {
     "ticks": 80,
-    "total_spikes": 2883,
-    "mean_spike_rate": 0.644,
+    "total_spikes": 2444,
+    "mean_spike_rate": 0.546,
     "interpretation": "光栅图呈现层间因果链——感官层稀疏放电经突触汇集后在联想层诱发密集同步放电，进而驱动决策层激活；固定语句与噪声区间在感官层呈现可区分的放电指纹"
   },
   "exp5": {
     "directional_scores": {
       "训练A→B": {
-        "A->B_score": 0.04294,
-        "B->A_score": 0.01816,
-        "asymmetry_index": 0.406
+        "A->B_score": 0.0418,
+        "B->A_score": 0.01965,
+        "asymmetry_index": 0.36
       },
       "训练B→A": {
-        "A->B_score": 0.04265,
-        "B->A_score": 0.0362,
-        "asymmetry_index": 0.082
+        "A->B_score": 0.04042,
+        "B->A_score": 0.03349,
+        "asymmetry_index": 0.094
       },
       "未训练基线": {
         "A->B_score": 0.01838,
@@ -58,16 +58,16 @@
       }
     },
     "final_synapse_mean": {
-      "训练A→B": 0.4986,
-      "训练B→A": 0.4981
+      "训练A→B": 0.495,
+      "训练B→A": 0.5002
     },
     "interpretation": "方向不对称指数排序为 训练A→B > 未训练基线 > 训练B→A：训练时序方向决定循环突触强化的因果方向（赫布规则无此方向敏感性）"
   },
   "exp6": {
-    "final_synapse_mean_rewarded": 0.849,
-    "final_synapse_mean_unrewarded": 0.7005,
-    "strong_synapses_rewarded": 657,
-    "strong_synapses_unrewarded": 571,
+    "final_synapse_mean_rewarded": 0.7454,
+    "final_synapse_mean_unrewarded": 0.6363,
+    "strong_synapses_rewarded": 583,
+    "strong_synapses_unrewarded": 506,
     "target_ltm_weight_rewarded": 1.0,
     "target_ltm_weight_unrewarded": 1.0,
     "interpretation": "奖励抬升多巴胺 -> STDP 速率放大，突触学习与强连接显著更多；目标记忆权重两组均因高频重复饱和（奖励作用于突触可塑性，不直接改变记忆写入权重）"
@@ -584,8 +584,8 @@
     "current_cos_cat_vs_random": 0.739,
     "input_cos_cat_vs_cat_variant1": 0.978,
     "input_cos_cat_vs_dog": 0.191,
-    "e2e_vector_perception": "[exp8-e2e | tick=1] 决策=静默观察 | 主导情绪=平静(cur=0.28, str=0.00, calm=0.86) | 决策层脉冲=0/8",
-    "perceive_image_smoke_test": "[exp8-file | tick=1] 决策=静默观察 | 主导情绪=平静(cur=0.28, str=0.00, calm=0.86) | 决策层脉冲=0/8",
+    "e2e_vector_perception": "[exp8-e2e | tick=1] 决策=静默观察 | 主导情绪=平静(cur=0.40, str=0.00, calm=0.80) | 决策层脉冲=0/8",
+    "perceive_image_smoke_test": "[exp8-file | tick=1] 决策=静默观察 | 主导情绪=平静(cur=0.40, str=0.00, calm=0.80) | 决策层脉冲=0/8",
     "interpretation": "重采样通路保持分段结构 embedding 的相似性排序；注1：abs 归一化丢失符号信息，抬高了不相关对的基线相似度；注2：稠密 iid embedding 在 16 维插值重采样下会扁平化，未来可换可学习投影替代线性插值"
   }
 }

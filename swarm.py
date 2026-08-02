@@ -22,6 +22,8 @@ import random
 import difflib
 from typing import List, Dict, Optional, Tuple
 
+import numpy as np
+
 from ai_brain_entity import AIBrainEntity, BrainMemory, BrainSwarm
 
 # 文化变异用的替换字符池

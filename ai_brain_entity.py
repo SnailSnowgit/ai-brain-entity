@@ -127,6 +127,7 @@ import json
 import math
 import hashlib
 import os
+import numpy as np
 from dataclasses import dataclass, asdict
 from typing import Callable, List, Dict, Tuple, Optional, Union
 
@@ -452,26 +453,39 @@ def make_robot_executor(strictness: float = 0.3) -> Callable:
     return executor
 
 
-def make_api_executor(endpoint: str, timeout: float = 5.0) -> Callable:
+def make_api_executor(endpoint: str, timeout: float = 5.0,
+                      verify_ssl: bool = True) -> Callable:
     """HTTP API 执行器（零依赖，urllib）：把结构化动作 POST 到外部服务。
 
     请求体：decide_action() 的完整动作 JSON。
     响应约定：HTTP 200 且 JSON 含 "reward" 字段时采用之，否则默认 +0.5；
     网络/协议错误 → success=False, reward=-0.3（失败也是学习信号）。
+
+    verify_ssl: HTTPS 请求时是否验证服务器证书（默认 True，安全）。
+                仅在对接自签名证书的内网服务时设为 False。
     """
 
     def executor(action: Dict) -> Dict:
         import urllib.request
+        import ssl
         payload = json.dumps(action, ensure_ascii=False).encode("utf-8")
         req = urllib.request.Request(
             endpoint, data=payload,
             headers={"Content-Type": "application/json"}, method="POST")
+        ctx = None
+        if endpoint.startswith("https://"):
+            ctx = ssl.create_default_context() if verify_ssl \
+                else ssl._create_unverified_context()
         try:
-            with urllib.request.urlopen(req, timeout=timeout) as resp:
+            with urllib.request.urlopen(req, timeout=timeout,
+                                        context=ctx) as resp:
                 body = resp.read().decode("utf-8")
             try:
                 data = json.loads(body)
-                reward = float(data.get("reward", 0.5))
+                if not isinstance(data, dict):
+                    reward = 0.5
+                else:
+                    reward = float(data.get("reward", 0.5))
             except (ValueError, TypeError):
                 reward = 0.5
             return {"success": True,
@@ -488,7 +502,9 @@ def make_api_executor(endpoint: str, timeout: float = 5.0) -> Callable:
 
 class AIBrainEntity:
     def __init__(self, brain_name: str, seed: Optional[int] = None,
-                 record_history: bool = False):
+                 record_history: bool = False,
+                 sensation_seeking: float = 0.5,
+                 habituation_rate: float = 0.3):
         if seed is not None:
             random.seed(seed)
         self.name = brain_name
@@ -562,6 +578,15 @@ class AIBrainEntity:
         self.novelty = 0.0          # 最近一次刺激的新奇度 [0,1]
         self.novelty_history: List[float] = []
         self.curiosity_drive = 0.25  # 新奇度 → 好奇心增益系数
+        # v4.9.1 人格差异：寻求刺激倾向 [0,1]
+        #   高值（如0.8）：天生好奇，基础好奇心高，新奇增益强，探索欲旺盛
+        #   低值（如0.2）：保守谨慎，偏好熟悉，新奇增益弱，更倾向利用已知
+        self.sensation_seeking = self._clip(sensation_seeking, 0.0, 1.0)
+        # v4.9.1 习惯化：反复暴露同一刺激后新奇度衰减速度 [0,1]
+        #   0 = 不衰减（每次见都像第一次），1 = 第二次就完全习惯
+        #   公式：effective_novelty = novelty / (1 + exposure_count × habituation_rate)
+        self.habituation_rate = self._clip(habituation_rate, 0.0, 1.0)
+        self.exposure_count: Dict[str, int] = {}  # 刺激内容 → 累计暴露次数
 
         # 2. 记忆系统（三级结构）
         self.sensory_buffer: List[str] = []   # 瞬时感官缓存
@@ -1043,12 +1068,14 @@ class AIBrainEntity:
             0.1, 1.0)
 
     def _assess_novelty(self, content: str) -> float:
-        """新奇度评估（v4.9）：记忆未命中率为主，近期 |RPE| 为辅。
+        """新奇度评估（v4.9.1）：记忆未命中率为主，|RPE| 为辅，含习惯化与人格。
 
-        对刺激的每个关键词试探回忆：命中越多越熟悉；无一命中则完全
-        新奇。叠加最近一次奖励预测误差的绝对值（意外也是新奇）。
-        副作用：新奇 → 好奇心上升 → 注意力当 tick 上升（注意捕获）；
-        熟悉 → 好奇心回落。返回新奇度 [0,1]。
+        1. 认知新奇：对每个关键词试探回忆，未命中比例 = miss
+        2. 意外新奇：最近 |RPE|（意料之外的事也是新奇）
+        3. 习惯化：同一刺激反复暴露，新奇度按 1/(1+n×rate) 折扣
+        4. 人格调制：sensation_seeking 调节好奇心增益强度
+        副作用：新奇 → 好奇心上升 → 当 tick 注意捕获；熟悉 → 好奇心回落。
+        返回新奇度 [0,1]。
         """
         tokens = [t for t in
                   content.replace("，", " ").replace("。", " ").split()
@@ -1060,23 +1087,39 @@ class AIBrainEntity:
             miss = 0.5
         rpe_part = (min(1.0, abs(self.rpe_history[-1]))
                     if self.rpe_history else 0.0)
-        nov = self._clip(0.7 * miss + 0.3 * rpe_part)
+        raw_nov = self._clip(0.7 * miss + 0.3 * rpe_part)
+
+        # 习惯化：累计暴露次数折扣新奇度
+        exposures = self.exposure_count.get(content, 0)
+        self.exposure_count[content] = exposures + 1
+        if self.habituation_rate > 0 and exposures > 0:
+            habit_factor = 1.0 / (1.0 + exposures * self.habituation_rate)
+        else:
+            habit_factor = 1.0
+        nov = self._clip(raw_nov * habit_factor)
         self.novelty = nov
         self.novelty_history.append(nov)
-        # 好奇驱动：新奇度偏离 0.5 多少，好奇心就增减多少（±0.25 封顶）
+
+        # 人格调制：寻求刺激者好奇心增益更强，保守者更弱
+        # curiosity_gain 范围 [0.5×, 2.0×]，以 0.5 为中心映射
+        personality_gain = 0.5 + self.sensation_seeking * 1.5
+        # 好奇驱动：新奇度偏离 0.5 多少，好奇心就增减多少
         self.emotion["curiosity"] = self._clip(
             self.emotion["curiosity"]
-            + self.curiosity_drive * (nov - 0.5) * 2)
+            + self.curiosity_drive * personality_gain * (nov - 0.5) * 2)
         self._modulate_attention()      # 当 tick 生效：注意捕获
         return nov
 
     def effective_epsilon(self) -> float:
-        """新奇度调制后的探索率（v4.9）：越新奇越探索，越熟悉越利用。
+        """新奇度+人格调制后的探索率（v4.9.1）。
 
-        ε_eff = ε × (0.5 + novelty)：完全新奇时 1.5ε，完全熟悉时 0.5ε。
+        基础：ε_eff = ε × (0.5 + novelty)，新奇时 1.5ε，熟悉时 0.5ε。
+        人格：sensation_seeking 高者整体探索率上浮，低者下浮。
         """
-        return self._clip(self.skill_epsilon * (0.5 + self.novelty),
-                          0.0, 1.0)
+        base = self.skill_epsilon * (0.5 + self.novelty)
+        # 人格探索偏移：高 SSS +0.05，低 SSS -0.05
+        personality_shift = (self.sensation_seeking - 0.5) * 0.1
+        return self._clip(base + personality_shift, 0.0, 1.0)
 
     @staticmethod
     def _clip(v: float, lo: float = 0.0, hi: float = 1.0) -> float:
@@ -1581,7 +1624,7 @@ class AIBrainEntity:
     # ------------------ DNA 记忆遗传模块 ------------------
 
     def dump_dna(self) -> dict:
-        """序列化大脑状态（记忆 + 突触 + 情绪），可用于保存或克隆"""
+        """序列化大脑状态（记忆 + 突触 + 情绪 + 人格参数），可用于保存或克隆"""
         return {
             "name": self.name,
             "tick": self.tick,
@@ -1592,30 +1635,122 @@ class AIBrainEntity:
             "long_memory": [asdict(m) for m in self.long_memory],
             "emotion": dict(self.emotion),
             "attention_factor": self.attention_factor,
+            "personality": {
+                "sensation_seeking": self.sensation_seeking,
+                "habituation_rate": self.habituation_rate,
+            },
+            "exposure_count": dict(self.exposure_count),
         }
 
     @classmethod
     def from_dna(cls, dna: dict, new_name: Optional[str] = None) -> "AIBrainEntity":
-        """从 DNA 克隆一个继承记忆与突触的新实体"""
+        """从 DNA 克隆一个继承记忆与突触的新实体。
+
+        对输入做结构校验与数值边界保护，防止损坏/恶意 JSON 导致异常状态。
+        """
+        if not isinstance(dna, dict):
+            raise TypeError(f"DNA 必须是 dict，实际是 {type(dna).__name__}")
+        # 必需字段检查
+        for key in ("name", "tick", "synapse", "short_memory",
+                    "long_memory", "emotion", "attention_factor"):
+            if key not in dna:
+                raise ValueError(f"DNA 缺少必需字段: {key!r}")
+        if not isinstance(dna["name"], str):
+            raise TypeError("DNA.name 必须是字符串")
+        if not isinstance(dna["tick"], int):
+            raise TypeError("DNA.tick 必须是整数")
+        if not isinstance(dna["synapse"], dict):
+            raise TypeError("DNA.synapse 必须是 dict")
+        if not isinstance(dna.get("recurrent_synapse", {}), dict):
+            raise TypeError("DNA.recurrent_synapse 必须是 dict")
+        if not isinstance(dna["short_memory"], list):
+            raise TypeError("DNA.short_memory 必须是 list")
+        if not isinstance(dna["long_memory"], list):
+            raise TypeError("DNA.long_memory 必须是 list")
+        if not isinstance(dna["emotion"], dict):
+            raise TypeError("DNA.emotion 必须是 dict")
+
+        def _parse_synapse(raw: dict, label: str) -> dict:
+            """解析突触字典，校验键格式与权重数值范围。"""
+            result = {}
+            for k, w in raw.items():
+                if not isinstance(k, str) or "," not in k:
+                    raise ValueError(
+                        f"{label} 键格式错误: {k!r}（应为 'pre,post'）")
+                try:
+                    a_str, b_str = k.split(",", 1)
+                    a, b = int(a_str), int(b_str)
+                except (ValueError, TypeError):
+                    raise ValueError(
+                        f"{label} 键 {k!r} 中的神经元 ID 必须是整数")
+                try:
+                    wf = float(w)
+                except (ValueError, TypeError):
+                    raise TypeError(
+                        f"{label}[{k!r}] 权重必须是数值，实际 {type(w).__name__}")
+                # 突触权重边界保护（与 _clip 一致，防止异常值污染网络）
+                result[(a, b)] = max(-2.0, min(2.0, wf))
+            return result
+
         brain = cls(new_name or (dna["name"] + "_clone"))
-        brain.tick = dna["tick"]
-        brain.synapse = {}
-        for k, w in dna["synapse"].items():
-            a, b = k.split(",")
-            brain.synapse[(int(a), int(b))] = w
-        # 循环突触（v2.1+ DNA；兼容旧版无此字段的 DNA）
-        for k, w in dna.get("recurrent_synapse", {}).items():
-            a, b = k.split(",")
-            brain.recurrent_synapse[(int(a), int(b))] = w
+        brain.tick = max(0, dna["tick"])
+        brain.synapse = _parse_synapse(dna["synapse"], "synapse")
+        brain.recurrent_synapse = _parse_synapse(
+            dna.get("recurrent_synapse", {}), "recurrent_synapse")
         brain._recurrent_out = {}
         brain._recurrent_in = {}
         for (pre, post) in brain.recurrent_synapse:
             brain._recurrent_out.setdefault(pre, []).append(post)
             brain._recurrent_in.setdefault(post, []).append(pre)
-        brain.short_memory = [BrainMemory(**m) for m in dna["short_memory"]]
-        brain.long_memory = [BrainMemory(**m) for m in dna["long_memory"]]
-        brain.emotion = dict(dna["emotion"])
-        brain.attention_factor = dna["attention_factor"]
+
+        def _safe_memory(raw_list: list, label: str) -> list:
+            """校验记忆条目结构，跳过格式错误的条目。"""
+            result = []
+            for i, m in enumerate(raw_list):
+                if not isinstance(m, dict):
+                    continue  # 跳过非 dict 条目
+                try:
+                    result.append(BrainMemory(**m))
+                except TypeError:
+                    continue  # 跳过字段不匹配的条目
+            return result
+
+        brain.short_memory = _safe_memory(dna["short_memory"], "short_memory")
+        brain.long_memory = _safe_memory(dna["long_memory"], "long_memory")
+        # 情绪值边界保护
+        brain.emotion = {}
+        for k, v in dna["emotion"].items():
+            if isinstance(k, str):
+                try:
+                    brain.emotion[k] = max(0.0, min(1.0, float(v)))
+                except (ValueError, TypeError):
+                    brain.emotion[k] = 0.5
+        try:
+            brain.attention_factor = max(0.1, min(3.0,
+                                        float(dna["attention_factor"])))
+        except (ValueError, TypeError):
+            brain.attention_factor = 1.0
+        # 人格参数（v4.9.1+ DNA；兼容旧版无此字段的 DNA）
+        pers = dna.get("personality", {})
+        if isinstance(pers, dict):
+            try:
+                brain.sensation_seeking = max(0.0, min(1.0,
+                        float(pers.get("sensation_seeking", 0.5))))
+            except (ValueError, TypeError):
+                brain.sensation_seeking = 0.5
+            try:
+                brain.habituation_rate = max(0.0, min(1.0,
+                        float(pers.get("habituation_rate", 0.3))))
+            except (ValueError, TypeError):
+                brain.habituation_rate = 0.3
+        # 暴露计数（习惯化状态）
+        ec = dna.get("exposure_count", {})
+        if isinstance(ec, dict):
+            brain.exposure_count = {
+                str(k): int(v) for k, v in ec.items()
+                if isinstance(k, str)
+                and isinstance(v, (int, float)) and v >= 0
+            }
         return brain
 
     def save_dna(self, path: str):

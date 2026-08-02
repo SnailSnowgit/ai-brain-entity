@@ -12,6 +12,8 @@
     register_image_encoder(encode, name="hist32")
 """
 
+import numpy as np
+
 
 def encode(path: str, bins: int = 32):
     """文件字节直方图 → bins 维归一化特征向量"""

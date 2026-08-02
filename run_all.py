@@ -21,6 +21,8 @@ import sys
 import time
 from pathlib import Path
 
+import numpy as np
+
 BASE = Path(__file__).parent
 PY = sys.executable
 

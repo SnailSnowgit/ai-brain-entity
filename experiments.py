@@ -35,6 +35,7 @@ except ImportError:
         matplotlib.rcParams["axes.unicode_minus"] = False
 
 try:
+    import numpy as np
     import pandas as pd
     import seaborn as sns
     import matplotlib.pyplot as plt
@@ -44,7 +45,7 @@ except ImportError as _deps_err:
     # 而不是裸抛 ModuleNotFoundError；核心模块不受影响
     _PLOT_DEPS_OK = False
     _PLOT_DEPS_ERR = _deps_err
-    pd = sns = plt = None
+    np = pd = sns = plt = None
 
 if not _PLOT_DEPS_OK:
     print(f"[跳过] 实验 1-8 复现需要绘图依赖（缺失：{_PLOT_DEPS_ERR.name}）")
