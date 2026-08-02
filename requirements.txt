@@ -11,3 +11,7 @@ pandas>=1.3
 # torch>=2.0           # CLIP/Whisper 推理后端
 # pillow>=9.0          # 图像解码
 # openai-whisper       # 音频 embedding
+
+# N-Omniglot 原始数据转换（仅 export_nomniglot.py 一次性导出需要；
+# 导出的 data/nomniglot_*.json 由 nomniglot.py 零依赖加载，不需要 dv）
+# dv>=1.0              # aedat4 事件文件解析（Python 3.12 需 imp shim，已在脚本内置）

@@ -13,6 +13,7 @@ v4.5 执行器技能学习；v4.6 检索式语言生成；
 v4.7 情景记忆时间索引；v4.8 睡眠-清醒节律（SHY）；
 v4.9 好奇驱动探索——感知、学习、记忆、行动、社会、节律的全栈类脑仿真。
 v5.0 起移植 BrainCog 脑认知功能范式：果蝇蘑菇体冲突决策（R-STDP + APL/DA 非线性）。
+v5.1 接入真实神经形态数据集 N-Omniglot：DAVIS346 事件相机笔画数据驱动大脑实体。
 
 ## 它是什么
 
@@ -267,9 +268,14 @@ ai_brain/
 ├── encoder_status.py         # 多模态编码器状态导出（v3.1 自定义模型通路 → data/）
 ├── run_all.py                # 全流程统一入口（测试→演示→实验→观测数据，--quick 快速模式）
 ├── drosophila_decision.py    # 果蝇蘑菇体冲突决策 SNN（BrainCog 范式零依赖复刻，v5.0）
+├── download_nomniglot.py     # N-Omniglot 分卷断点续传下载器（figshare → S3，v5.1）
+├── export_nomniglot.py       # aedat4 事件 → JSON 一次性转换（需 dv，v5.1）
+├── nomniglot.py              # N-Omniglot 导出样本零依赖加载 + k-shot 基准（v5.1）
+├── nomniglot_demo.py         # 真实事件数据驱动大脑实体演示（v5.1）
 ├── tests/                    # 核心行为测试（纯标准库 unittest）
 │   ├── test_ai_brain.py      # 100 项：编码/可塑性/记忆/奖励/DNA/思考链/群体/多模态/v4.0~v4.9
-│   └── test_drosophila.py    # 9 项：果蝇决策范式（刺激/训练/PI 曲线/非线性开关）
+│   ├── test_drosophila.py    # 9 项：果蝇决策范式（刺激/训练/PI 曲线/非线性开关）
+│   └── test_nomniglot.py     # 8 项：N-Omniglot 加载/少样本基准/大脑接入/习惯化
 ├── docs/
 │   └── paper.md              # 学术论文（架构+实验+分析，含 v3.0 更新章节）
 ├── data/                     # 运行时数据产物
@@ -277,6 +283,7 @@ ai_brain/
 │   ├── brain_activity_trace.json  # 大脑活动追踪（Widget 回放数据，预生成）
 │   ├── thought_chain_scenarios.json  # Spike CoT 三场景（Widget 数据源，预生成）
 │   ├── encoder_status.json        # 多模态编码器状态（Widget 数据源，预生成）
+│   ├── nomniglot_latin.json       # N-Omniglot Latin 13 类 × 10 样本（真实事件数据，v5.1）
 │   └── brain_dna.json             # 演示生成的 DNA 快照
 ├── models/                   # 自定义多模态模型目录（权重已被 .gitignore 忽略）
 │   ├── README.md             # 目录约定与接入方式
@@ -330,6 +337,19 @@ ai_brain/
 - **APL+DA 产生非线性开关**：加入 APL 反馈抑制与多巴胺脉冲后，PI 曲线
   变为接近全有/全无的 sigmoid（c≤0.3 时 PI≈+1.0，c≥0.6 时 PI≈−1.0），
   复现 Zhao et al. (2020, Scientific Reports) 的核心发现。
+
+**v5.1 真实神经形态数据（N-Omniglot）**
+
+- **真实事件数据已落地项目**：从 figshare 官方源（MD5 校验一致）下载
+  dvs_background_2 分卷（14 个文字系统、468 个字符的 DAVIS346 aedat4
+  原始记录），导出 Latin 13 类 × 10 样本（每样本平均 4.9 万事件、
+  时长 2.35s）为 `data/nomniglot_latin.json`（4 帧 × 16×16，ON-OFF 归一）。
+- **数据具有真实挑战性**：k-shot 最近原型基准（13 类，随机 7.7%）：
+  1-shot 14.5% → 5-shot 32.3%——与论文结论一致（N-Omniglot 空间稀疏、
+  帧间相似度低，对简单分类器远比静态 Omniglot 困难）。
+- **真实事件驱动大脑**：65 个样本经可学习投影进入感官层并奖励调制后，
+  突触均值 0.351→0.531；未见内容首次新奇度 0.70，重复暴露后按 v4.9.1
+  习惯化公式逐次衰减。
 
 ## 扩展方向
 
