@@ -9,6 +9,3 @@ __pycache__/
 *.onnx
 *.ckpt
 *.gguf
-
-# N-Omniglot 原始事件数据（aedat4/rar，体积大，按需用 download_nomniglot.py 拉取）
-data/nomniglot_raw/
