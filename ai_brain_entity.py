@@ -1,6 +1,6 @@
 # -*- coding: utf-8 -*-
 """
-AI大脑实体（类脑架构 Python 完整可运行代码）v3.0
+AI大脑实体（类脑架构 Python 完整可运行代码）v4.0
 ====================================================
 定位：独立大脑实体，包含感知缓冲区、脉冲神经元集群、短期记忆(STM)、
       长期记忆(LTM)、情绪核、注意力机制、决策中枢、遗忘机制。
@@ -23,6 +23,90 @@ v3.0 新增：
      （pre 先于 post 发放 → LTP；post 先于 pre → LTD，指数时间窗）
   4. 多巴胺样奖励信号：reward(value) 调制学习速率，实现强化学习
 
+v3.1 新增：
+  - 可插拔自定义多模态模型：register_*_encoder / set_*_model /
+    perceive_*(encoder=...)，编码器优先级链 + 确定性兜底
+
+v4.0 新增（README 四大扩展方向落地）：
+  1. 可学习投影（LearnableProjection，Oja 在线 PCA 规则）替代线性插值
+     重采样：保符号的中心化归一化，保留稠密 embedding 的对比度
+  2. 文化传递动力学：水平（同代同伴）vs 垂直（跨代）传播、
+     群体共识涌现度量（consensus）
+  3. 奖励预测误差（RPE / TD 误差）：reward_td() 以预测误差驱动多巴胺，
+     奖励被预测后多巴胺反应自然衰减（时序差分学习）
+  4. 决策输出接入动作空间 / 语言生成：decide_action() 结构化动作 +
+     express() 模板化自然语言表达
+
+v4.1 新增：
+  1. 动作执行器闭环：register_executor() 注册机器人 / HTTP API 执行器，
+     act() 完成"决策→执行→reward_td 奖励回传"的感知-行动-学习闭环
+     （make_robot_executor 模拟机器人指令；make_api_executor 零依赖
+     urllib POST 结构化动作到外部服务）
+  2. 社交拓扑与共识相变：set_topology() 支持全连接/环形/星形/随机/
+     小世界，文化传播只沿社交边进行；consensus_convergence() 测量
+     模因覆盖率达标所需轮数——拓扑与规模决定收敛速度
+
+v4.2 新增：
+  - 拓扑自适应（共同演化网络）：rewire_coevolve() 实现 Holme-Newman
+    动力学——异见边上"观点模仿 vs 断边重连"博弈（φ=rewire_prob 控制
+    结构主导程度），未持有者向持有者"求知连边"（边之生）；共识压力
+    反作用于社交边生灭，静态稀疏拓扑无法收敛的种群在共同演化下
+    快速收敛；coevolve_consensus() 记录覆盖率/边数/同道边比例曲线
+
+v4.3 新增：
+  - 多模因竞争（文化生态）：compete_coevolve() 让多个模因在同一
+    共同演化网络上竞争——个体立场 = 权重最高的模因；阵营内连边
+    （边之生），异见边上 φ 断边重连（阵营隔离）vs 1−φ 立场转化
+    （教师随机方向）。competition_dynamics() 判定结局：φ 低时立场
+    转化主导 → 单一模因垄断共识；φ 高时阵营隔离主导 → 极化共存。
+    实测（N=12 环形，两阵营各半）：φ≤0.5 垄断（8-13 轮），
+    φ≥0.7 极化（0.5/0.5），临界点 φ∈(0.5, 0.7)
+
+v4.4 新增：
+  - TD(λ) 资格迹：每次感知标记状态访问（替换迹，γλ 衰减），
+    reward_lambda() 把 RPE 按迹强度反向分配给近期所有状态
+    V(s) += α·δ·e(s)——信用分配跨 tick 传播。Schultz 范式实测
+    （三线索链→奖励，20 试次）：V 呈时间梯度（0.51/0.71/0.99），
+    奖励时刻 RPE 从 1.0 衰减到 0.014（多巴胺时序迁移）
+
+v4.5 新增：
+  - 执行器技能学习：learn_skill() 为每个动作 verb 维护独立价值
+    估计 Q(verb)（执行后果精确归因到实际采取的动作），select_verb()
+    支持 greedy / ε-greedy / softmax 策略；act(policy=...) 由习得
+    价值覆盖 verb 选择。实测（respond=0.8/acknowledge=0.2/observe=-0.4
+    三执行器，40 轮 ε-greedy）：Q 收敛 0.80/0.19/-0.30，
+    greedy 策略 20/20 选高价值动作
+
+v4.6 新增：
+  - 检索式语言生成：compose() 把 express() 的固定模板升级为
+    "检索→编织→造句"三段式——_retrieve_fragments() 从 LTM 按权重
+    取 top_k 相关记忆（长词未命中时退化为 2/3 字 n-gram 子词检索，
+    "取火的方法"也能联想到"钻木可以取火"）；_weave_memories()
+    按片段数选单句/并列/联想链结构；句法框架填充刺激、记忆从句
+    与情绪修饰词，同 tick 输出确定可复现
+
+v4.7 新增：
+  - 情景记忆时间索引：每次感知记一条情景 {tick, content, context}
+    ——何时发生、与何事共现（感官缓存同期内容）。episodic_trace()
+    按时间序取轨迹；events_after() / events_before() 以"最近一次"
+    为锚点做时间推理（含 tick 间隔 delta）——支持"上次刷牙之后
+    发生了什么"式追问，锚点不存在时安全返回空
+
+v4.8 新增：
+  - 睡眠-清醒节律：sleep(cycles) 离线期记忆重放（STM 每条 +0.15/周期，
+    达阈值当即固化——白天无法固化的弱刺激在睡眠中转入 LTM）；
+    突触稳态缩放（SHY）：全部突触逐周期 ×0.95 等比下调、低于下限
+    剪除——保留相对差异（强连接存活），清除噪声弱连接；资格迹
+    洗脱、多巴胺归零、压力衰减、平静恢复。实测：3 周期固化 2 条
+    弱记忆；12 周期剪除 103/768 条突触
+
+v4.9 新增：
+  - 好奇驱动探索：_assess_novelty() 以记忆未命中率为主、近期 |RPE|
+    为辅评估新奇度——新奇当 tick 捕获注意（好奇心→注意力即时上升），
+    effective_epsilon() 按 ε×(0.5+novelty) 调制探索率：完全新奇 1.5ε
+    探索，完全熟悉 0.5ε 利用。实测：熟悉刺激新奇度 0 / ε 减半；
+    全新刺激 0.70 / ε 提升；大意外后熟悉刺激重获 0.30 新奇度
+
 类脑层级：
   1. 感官层神经元：接收外部原始信号（文字 / 任意 embedding 向量）
   2. 联想层神经元：特征提取、关联记忆匹配（含侧向循环连接）
@@ -33,7 +117,7 @@ v3.0 新增：
 扩展：
   - DNA 记忆遗传模块（记忆序列化保存、实体克隆继承记忆）
   - 多模态接口（图像/音频 embedding，可选真实模型编码）
-  - 群体智能（BrainSwarm：文化传递 / 广播）
+  - 群体智能（BrainSwarm：文化传递 / 广播 / 共识涌现）
   - 脉冲活动记录（供可视化/实验分析）
 """
 
@@ -265,6 +349,141 @@ class BrainMemory:
     tag: str         # 记忆标签：sensory / emotion / event / culture
 
 
+# ===================== 可学习投影（v4.0） =====================
+
+class LearnableProjection:
+    """可学习投影：任意维 embedding → n 维感官电流，替代线性插值重采样。
+
+    解决实验 8 发现的两个通路局限：
+      - 线性插值把稠密 iid embedding 扁平化（相邻维平均抹平对比度）；
+      - abs 归一化丢失符号信息，抬高不相关对的基线相似度。
+
+    机制：
+      - 随机投影矩阵 W（n × in_dim，行向量单位化，Johnson-Lindenstrauss
+        风格），对 embedding 做带符号投影，距离/对比度结构得以保留；
+      - Oja 在线 PCA 规则训练（w ← w + η·y·(x − y·w)）：投影方向逐步
+        对齐输入分布的主成分，方差大的语义方向获得更大表征带宽；
+      - 保符号的中心化归一化：以均值为中心线性映射到 [0, 0.8]，
+        维度间差异（对比度）等比例保留，不做 abs。
+
+    用法：
+        proj = LearnableProjection(in_dim=512, out_dim=16, seed=42)
+        cur = proj.project(vec)          # 16 维感官电流
+        proj.train(vec)                  # 在线学习（Oja 一步）
+    """
+
+    def __init__(self, in_dim: int, out_dim: int = 16,
+                 seed: Optional[int] = None, lr: float = 0.01):
+        self.in_dim = in_dim
+        self.out_dim = out_dim
+        self.lr = lr
+        self.train_steps = 0
+        rng = random.Random(seed)
+        # 随机投影 + 行单位化
+        self.W: List[List[float]] = []
+        for _ in range(out_dim):
+            row = [rng.gauss(0.0, 1.0) for _ in range(in_dim)]
+            norm = math.sqrt(sum(v * v for v in row)) or 1.0
+            self.W.append([v / norm for v in row])
+
+    def project_raw(self, vec: List[float]) -> List[float]:
+        """带符号投影（未归一化）"""
+        return [sum(wi * vi for wi, vi in zip(row, vec)) for row in self.W]
+
+    def project(self, vec: List[float]) -> List[float]:
+        """投影 → 保符号中心化归一化到 [0, 0.8]（对比度等比例保留）"""
+        y = self.project_raw(vec)
+        mean = sum(y) / len(y)
+        dev = [v - mean for v in y]
+        dmax = max(abs(v) for v in dev) or 1.0
+        # 0.4 为中心，偏差等比例映射到 ±0.4：维度间差值严格线性保留
+        return [self._clip01(0.4 + 0.4 * v / dmax) for v in dev]
+
+    def train(self, vec: List[float], lr: Optional[float] = None):
+        """Oja 在线 PCA 一步：投影方向向输入分布主成分收敛"""
+        eta = lr if lr is not None else self.lr
+        y = self.project_raw(vec)
+        for row, yi in zip(self.W, y):
+            for i in range(self.in_dim):
+                row[i] += eta * yi * (vec[i] - yi * row[i])
+            # 轻量再归一化，防权重漂移
+            norm = math.sqrt(sum(v * v for v in row)) or 1.0
+            for i in range(self.in_dim):
+                row[i] /= norm
+        self.train_steps += 1
+
+    @staticmethod
+    def _clip01(v: float) -> float:
+        return max(0.0, min(0.8, v))
+
+
+# ===================== 动作执行器（v4.1） =====================
+#
+# 执行器契约：callable(action: Dict) -> Dict，返回至少包含
+#   success: bool   — 执行是否成功
+#   reward:  float  — 执行结果奖励 [-1, 1]（回传给 reward_td 闭环学习）
+#   detail:  str    — 人类可读的执行描述
+# action 即 decide_action() 的结构化输出（verb/intensity/mood/recalled）。
+
+def make_robot_executor(strictness: float = 0.3) -> Callable:
+    """模拟机器人执行器：把动作动词映射为机器人指令并"执行"。
+
+    verb → 指令：respond→语音+接近，acknowledge→点头示意，observe→原地扫描。
+    动作强度低于 strictness 时执行器无法有效驱动（弱信号带不动电机），
+    判定失败并给负奖励——强度门槛模拟真实执行器的最小驱动条件。
+    全程确定性（无随机），保证实验可复现。
+    """
+    commands = {"respond": "SPEAK+APPROACH",
+                "acknowledge": "NOD",
+                "observe": "STAY+SCAN"}
+
+    def executor(action: Dict) -> Dict:
+        verb = action.get("verb", "observe")
+        cmd = commands.get(verb, "STAY+SCAN")
+        intensity = float(action.get("intensity", 0.0))
+        if verb != "observe" and intensity < strictness:
+            return {"success": False, "reward": -0.4,
+                    "detail": f"机器人指令 {cmd} 执行失败：动作强度 "
+                              f"{intensity:.2f} 低于驱动门槛 {strictness:.2f}"}
+        reward = min(1.0, 0.4 + intensity) if verb != "observe" else 0.2
+        return {"success": True, "reward": round(reward, 3),
+                "detail": f"机器人执行 {cmd} 完成（强度 {intensity:.2f}）"}
+
+    return executor
+
+
+def make_api_executor(endpoint: str, timeout: float = 5.0) -> Callable:
+    """HTTP API 执行器（零依赖，urllib）：把结构化动作 POST 到外部服务。
+
+    请求体：decide_action() 的完整动作 JSON。
+    响应约定：HTTP 200 且 JSON 含 "reward" 字段时采用之，否则默认 +0.5；
+    网络/协议错误 → success=False, reward=-0.3（失败也是学习信号）。
+    """
+
+    def executor(action: Dict) -> Dict:
+        import urllib.request
+        payload = json.dumps(action, ensure_ascii=False).encode("utf-8")
+        req = urllib.request.Request(
+            endpoint, data=payload,
+            headers={"Content-Type": "application/json"}, method="POST")
+        try:
+            with urllib.request.urlopen(req, timeout=timeout) as resp:
+                body = resp.read().decode("utf-8")
+            try:
+                data = json.loads(body)
+                reward = float(data.get("reward", 0.5))
+            except (ValueError, TypeError):
+                reward = 0.5
+            return {"success": True,
+                    "reward": max(-1.0, min(1.0, reward)),
+                    "detail": f"API {endpoint} 已执行 (HTTP 200)"}
+        except Exception as e:
+            return {"success": False, "reward": -0.3,
+                    "detail": f"API {endpoint} 调用失败：{type(e).__name__}"}
+
+    return executor
+
+
 # ===================== 大脑实体 =====================
 
 class AIBrainEntity:
@@ -307,10 +526,56 @@ class AIBrainEntity:
         self.dopamine = 0.0       # [-1, 1]，正奖励增强学习，负奖励抑制
         self.dopamine_decay = 0.95
 
+        # v4.0 可学习投影（按输入维度惰性创建；None = 沿用线性插值重采样）
+        self.use_projection = False
+        self._projections: Dict[int, LearnableProjection] = {}
+        self.projection_train_on_input = True  # 感知时是否顺带在线训练投影
+
+        # v4.0 奖励预测误差（RPE / TD 学习）
+        self.value_estimate = 0.0   # 状态价值 V：对奖励的预期
+        self.td_alpha = 0.2         # 价值学习速率
+        self.rpe_history: List[float] = []  # 历次奖励预测误差（实验观测用）
+
+        # v4.4 TD(λ) 资格迹：信用分配跨 tick 反向传播
+        self.eligibility: Dict[str, float] = {}   # 状态(刺激内容) -> 资格迹强度
+        self.state_values: Dict[str, float] = {}  # 状态 -> 价值 V(s)
+        self.td_gamma = 0.9         # 折扣因子（未来奖励的现值）
+        self.td_lambda = 0.8        # 资格迹衰减率 λ
+        self.trace_threshold = 0.01  # 低于此强度的迹被剪除
+        self._last_state: Optional[str] = None
+
+        # v4.0 群体动力学：实体所属世代（BrainSwarm.reproduce 会递增）
+        self.generation = 1
+
+        # v4.1 动作执行器：verb -> callable(action) -> {success, reward, detail}
+        self.executors: Dict[str, Callable] = {}
+        self.default_executor: Optional[Callable] = None
+
+        # v4.5 执行器技能学习：每个 verb 独立价值估计 Q(verb)
+        self.verb_values: Dict[str, float] = {
+            cfg["verb"]: 0.0 for cfg in self.ACTION_SPACE.values()}
+        self.skill_alpha = 0.3      # 技能价值学习速率
+        self.skill_epsilon = 0.15   # ε-greedy 探索率
+        self.skill_temperature = 0.5  # softmax 温度
+
+        # v4.9 好奇驱动探索：新奇度反向调制注意与 ε
+        self.novelty = 0.0          # 最近一次刺激的新奇度 [0,1]
+        self.novelty_history: List[float] = []
+        self.curiosity_drive = 0.25  # 新奇度 → 好奇心增益系数
+
         # 2. 记忆系统（三级结构）
         self.sensory_buffer: List[str] = []   # 瞬时感官缓存
         self.short_memory: List[BrainMemory] = []
         self.long_memory: List[BrainMemory] = []
+
+        # v4.7 情景记忆时间索引：每次感知记一条情景（何时 + 与何事共现）
+        self.episodes: List[Dict] = []   # {tick, content, context:[共现内容]}
+
+        # v4.8 睡眠-清醒节律：离线重放固化 + 突触稳态缩放（SHY）
+        self.sleep_replay_gain = 0.15       # 每次重放的 STM 权重增益
+        self.sleep_downscale = 0.95         # 突触等比下调系数（保留相对差异）
+        self.synapse_prune_threshold = 0.08  # 前馈突触剪除下限
+        self.recurrent_prune_threshold = 0.04  # 循环突触剪除下限
         self.max_stm = 20
         self.max_ltm = 500
         self.stm_consolidate_threshold = 0.55   # STM 权重超过此值固化进 LTM
@@ -449,6 +714,77 @@ class AIBrainEntity:
                 self.emotion["stress"] - 0.2 * value)
         return self.dopamine
 
+    def reward_td(self, reward: float) -> Dict[str, float]:
+        """奖励预测误差（RPE / TD 误差）驱动的多巴胺更新（v4.0）。
+
+        与 reward() 的直接注入不同：多巴胺响应的是"意外"——
+            RPE δ = 实际奖励 r − 预期价值 V
+            V ← V + α·δ          （价值函数学习）
+            多巴胺 ← 多巴胺 + δ    （误差驱动，而非奖励驱动）
+
+        学习效果：同一奖励反复出现 → V 收敛到 r → δ→0 → 多巴胺不再波动
+        （奖励被完全预测，经典 TD 现象）；奖励突然变化 → 重新出现大 RPE。
+        返回本步诊断量。
+        """
+        reward = self._clip(reward, -1.0, 1.0)
+        rpe = reward - self.value_estimate
+        self.value_estimate += self.td_alpha * rpe
+        self.dopamine = self._clip(self.dopamine + rpe, -1.0, 1.0)
+        self.emotion["pleasure"] = self._clip(
+            self.emotion["pleasure"] + 0.3 * rpe)
+        if rpe < 0:
+            self.emotion["stress"] = self._clip(
+                self.emotion["stress"] - 0.2 * rpe)
+        self.rpe_history.append(rpe)
+        return {"reward": reward, "rpe": rpe,
+                "value_estimate": self.value_estimate,
+                "dopamine": self.dopamine}
+
+    # ------------------ TD(λ) 资格迹（v4.4） ------------------
+
+    def _mark_state(self, state: str):
+        """感知到一个状态：所有旧迹按 γλ 衰减，当前状态迹重置为 1（替换迹）"""
+        decay = self.td_gamma * self.td_lambda
+        self.eligibility = {s: e * decay for s, e in self.eligibility.items()}
+        self.eligibility = {s: e for s, e in self.eligibility.items()
+                            if e >= self.trace_threshold}
+        self.eligibility[state] = 1.0
+        self._last_state = state
+
+    def reward_lambda(self, reward: float) -> Dict:
+        """TD(λ) 奖励：RPE 按资格迹反向分配给近期所有状态（v4.4）。
+
+        与 reward_td() 的单状态 V 不同，这里维护逐状态价值 V(s)：
+            δ = r − V(s_t)              （当前状态的预测误差）
+            V(s) ← V(s) + α·δ·e(s)      （所有带迹状态按迹强度分摊信用）
+
+        效果：反复经历"线索A → 线索B → 奖励"后，信用沿迹反向传播，
+        较早的线索也获得价值（多巴胺时序迁移，Schultz 经典实验现象）。
+        返回本步诊断量（含各状态获得的信用量）。
+        """
+        reward = self._clip(reward, -1.0, 1.0)
+        cur_v = self.state_values.get(self._last_state, 0.0)
+        rpe = reward - cur_v
+        credited = {}
+        for s, e in self.eligibility.items():
+            dv = self.td_alpha * rpe * e
+            self.state_values[s] = self.state_values.get(s, 0.0) + dv
+            credited[s] = dv
+        # 同步全局 V（取当前状态），保持与 reward_td 诊断口径一致
+        self.value_estimate = self.state_values.get(self._last_state, 0.0)
+        self.dopamine = self._clip(self.dopamine + rpe, -1.0, 1.0)
+        self.emotion["pleasure"] = self._clip(
+            self.emotion["pleasure"] + 0.3 * rpe)
+        if rpe < 0:
+            self.emotion["stress"] = self._clip(
+                self.emotion["stress"] - 0.2 * rpe)
+        self.rpe_history.append(rpe)
+        return {"reward": reward, "rpe": rpe,
+                "value_estimate": self.value_estimate,
+                "dopamine": self.dopamine,
+                "credited": credited,
+                "state_values": dict(self.state_values)}
+
     def _learning_rate(self) -> float:
         """多巴胺调制后的有效学习速率"""
         return self.hebbian_rate * max(0.0, 1.0 + self.dopamine)
@@ -532,10 +868,35 @@ class AIBrainEntity:
         return self._perceive(data, currents, tag="sensory")
 
     def sensory_input_vector(self, vec: List[float], label: str = "") -> str:
-        """多模态接口：接收图像/音频 embedding 等任意数值向量"""
-        currents = self._normalize_vector(vec, len(self.sense_layer))
+        """多模态接口：接收图像/音频 embedding 等任意数值向量。
+
+        v4.0：use_projection=True 时经可学习投影进入感官层（保对比度），
+        并顺带对该 embedding 做一步 Oja 在线训练（可关）；否则沿用
+        线性插值重采样（向后兼容）。
+        """
+        if self.use_projection:
+            proj = self._get_projection(len(vec))
+            if self.projection_train_on_input:
+                proj.train(vec)
+            currents = proj.project(vec)
+        else:
+            currents = self._normalize_vector(vec, len(self.sense_layer))
         content = label or f"<vector[{len(vec)}]>"
         return self._perceive(content, currents, tag="sensory")
+
+    # ------------------ 可学习投影（v4.0） ------------------
+
+    def _get_projection(self, in_dim: int) -> LearnableProjection:
+        """按输入维度惰性创建投影（每种 embedding 维度各一份，独立学习）"""
+        if in_dim not in self._projections:
+            self._projections[in_dim] = LearnableProjection(
+                in_dim=in_dim, out_dim=len(self.sense_layer), seed=42)
+        return self._projections[in_dim]
+
+    def enable_projection(self, on: bool = True):
+        """开关可学习投影通路。开启后 sensory_input_vector 走投影。"""
+        self.use_projection = on
+        return self.use_projection
 
     def _perceive(self, content: str, input_currents: List[float], tag: str) -> str:
         """统一的感知-认知流水线"""
@@ -543,6 +904,12 @@ class AIBrainEntity:
         self.sensory_buffer.append(content)
         if len(self.sensory_buffer) > 8:
             self.sensory_buffer.pop(0)
+        self._mark_state(content)   # v4.4：感知即状态访问，刷新资格迹
+        # v4.7：记一条情景——此刻 tick + 感官缓存里共现的其他内容
+        self.episodes.append({
+            "tick": self.tick, "content": content,
+            "context": [c for c in self.sensory_buffer if c != content]})
+        self._assess_novelty(content)   # v4.9：新奇度 → 当 tick 注意捕获
 
         # 网络动力学：外部刺激经注意力调制注入，随后自由回响 settle_ticks
         external = [c * self.attention_factor for c in input_currents]
@@ -675,6 +1042,42 @@ class AIBrainEntity:
             0.6 + self.emotion["curiosity"] * 0.25 - self.emotion["stress"] * 0.3,
             0.1, 1.0)
 
+    def _assess_novelty(self, content: str) -> float:
+        """新奇度评估（v4.9）：记忆未命中率为主，近期 |RPE| 为辅。
+
+        对刺激的每个关键词试探回忆：命中越多越熟悉；无一命中则完全
+        新奇。叠加最近一次奖励预测误差的绝对值（意外也是新奇）。
+        副作用：新奇 → 好奇心上升 → 注意力当 tick 上升（注意捕获）；
+        熟悉 → 好奇心回落。返回新奇度 [0,1]。
+        """
+        tokens = [t for t in
+                  content.replace("，", " ").replace("。", " ").split()
+                  if len(t) >= 2]
+        if tokens:
+            hits = sum(1 for t in tokens if self.recall(t, top_k=1))
+            miss = 1.0 - hits / len(tokens)
+        else:
+            miss = 0.5
+        rpe_part = (min(1.0, abs(self.rpe_history[-1]))
+                    if self.rpe_history else 0.0)
+        nov = self._clip(0.7 * miss + 0.3 * rpe_part)
+        self.novelty = nov
+        self.novelty_history.append(nov)
+        # 好奇驱动：新奇度偏离 0.5 多少，好奇心就增减多少（±0.25 封顶）
+        self.emotion["curiosity"] = self._clip(
+            self.emotion["curiosity"]
+            + self.curiosity_drive * (nov - 0.5) * 2)
+        self._modulate_attention()      # 当 tick 生效：注意捕获
+        return nov
+
+    def effective_epsilon(self) -> float:
+        """新奇度调制后的探索率（v4.9）：越新奇越探索，越熟悉越利用。
+
+        ε_eff = ε × (0.5 + novelty)：完全新奇时 1.5ε，完全熟悉时 0.5ε。
+        """
+        return self._clip(self.skill_epsilon * (0.5 + self.novelty),
+                          0.0, 1.0)
+
     @staticmethod
     def _clip(v: float, lo: float = 0.0, hi: float = 1.0) -> float:
         return max(lo, min(hi, v))
@@ -718,6 +1121,53 @@ class AIBrainEntity:
                 m.weight *= factor
             store[:] = [m for m in store if m.weight >= self.forget_threshold]
 
+    def sleep(self, cycles: int = 1) -> Dict:
+        """睡眠-清醒节律（v4.8）：离线记忆重放 + 突触稳态缩放。
+
+        1. 重放固化：STM 每条记忆离线重放 cycles 次（权重 += 增益/次），
+           达固化阈值者当即转入 LTM——白天只出现一两次的弱刺激，
+           也能在睡眠中完成固化（海马→新皮层重放）；
+        2. 突触稳态缩放（SHY 假说）：全部突触 ×0.95 等比下调，
+           低于剪除下限的连接删除——等比缩放保留习得连接间的
+           相对差异（选择性不丢失），只清除噪声弱连接；
+        3. 清洗：资格迹清零、多巴胺归零、压力衰减、平静恢复。
+
+        返回本轮睡眠报告。
+        """
+        replayed, consolidated = 0, 0
+        pruned = 0
+        for _ in range(cycles):
+            for mem in list(self.short_memory):
+                mem.weight = self._clip(mem.weight + self.sleep_replay_gain)
+                replayed += 1
+                if mem.weight >= self.stm_consolidate_threshold:
+                    self.short_memory.remove(mem)
+                    self._consolidate_to_ltm(mem)
+                    consolidated += 1
+            # 突触稳态缩放随睡眠周期逐轮进行（SHY：越睡越"轻"）
+            for table, floor in ((self.synapse, self.synapse_prune_threshold),
+                                 (self.recurrent_synapse,
+                                  self.recurrent_prune_threshold)):
+                for key in list(table):
+                    table[key] *= self.sleep_downscale
+                    if table[key] < floor:
+                        del table[key]
+                        pruned += 1
+
+        stress_before = self.emotion["stress"]
+        self.eligibility.clear()           # 资格迹在睡眠中洗脱
+        self.dopamine = 0.0
+        self.emotion["stress"] *= 0.5 ** cycles
+        self.emotion["calm"] = self._clip(
+            self.emotion["calm"] + 0.2 * cycles)
+        return {"cycles": cycles, "replayed": replayed,
+                "consolidated": consolidated,
+                "pruned_synapses": pruned,
+                "synapses": len(self.synapse),
+                "recurrent_synapses": len(self.recurrent_synapse),
+                "stress_before": round(stress_before, 3),
+                "stress_after": round(self.emotion["stress"], 3)}
+
     def recall(self, keyword: str, top_k: int = 3,
                exclude_latest: bool = True) -> List[BrainMemory]:
         """按关键词联想回忆（LTM 优先，按权重排序），回忆会强化记忆（再巩固）。
@@ -737,6 +1187,35 @@ class AIBrainEntity:
         for m in unique[:top_k]:
             m.weight = self._clip(m.weight + 0.05)  # 回忆强化
         return unique[:top_k]
+
+    # ------------------ 情景记忆时间索引（v4.7） ------------------
+
+    def episodic_trace(self, keyword: str) -> List[Dict]:
+        """情景轨迹：按时间顺序返回所有含 keyword 的情景条目"""
+        return [ep for ep in self.episodes if keyword in ep["content"]]
+
+    def _episodes_relative(self, keyword: str,
+                           direction: str) -> Dict:
+        """以"最近一次 keyword 情景"为锚点，取之前/之后的事件序列"""
+        trace = self.episodic_trace(keyword)
+        if not trace:
+            return {"anchor": None, "events": []}
+        anchor = trace[-1]                     # "上次" = 最近一次
+        if direction == "after":
+            evs = [ep for ep in self.episodes if ep["tick"] > anchor["tick"]]
+        else:
+            evs = [ep for ep in self.episodes if ep["tick"] < anchor["tick"]]
+        return {"anchor": anchor,
+                "events": [{**ep, "delta": ep["tick"] - anchor["tick"]}
+                           for ep in evs]}
+
+    def events_after(self, keyword: str) -> Dict:
+        """时间推理："上次 keyword 之后发生了什么"（含 tick 间隔 delta）"""
+        return self._episodes_relative(keyword, "after")
+
+    def events_before(self, keyword: str) -> Dict:
+        """时间推理："上次 keyword 之前经历过什么"（delta 为负）"""
+        return self._episodes_relative(keyword, "before")
 
     # ------------------ 决策中枢 ------------------
 
@@ -770,6 +1249,268 @@ class AIBrainEntity:
         if recalled:
             reply += f" | 联想回忆: {recalled[0].content!r}(w={recalled[0].weight:.2f})"
         return reply
+
+    # ------------------ 动作空间与语言生成（v4.0） ------------------
+
+    # 动作空间：决策层脉冲强度 → 结构化动作（可被外部执行器消费）
+    ACTION_SPACE: Dict[str, Dict] = {
+        "主动响应": {"min_spikes": 4, "verb": "respond",
+                     "description": "决策层强发放，全通道输出"},
+        "弱响应":   {"min_spikes": 2, "verb": "acknowledge",
+                     "description": "决策层中等发放，低强度跟进"},
+        "静默观察": {"min_spikes": 0, "verb": "observe",
+                     "description": "决策层弱/无发放，保持监听"},
+    }
+
+    # 语言生成模板：按 (动作 × 主导情绪) 选槽位填充
+    _UTTER_TEMPLATES: Dict[str, Dict[str, List[str]]] = {
+        "主动响应": {
+            "curiosity": ["「{stim}」——这个很有意思，我想深入了解。",
+                          "我对「{stim}」很感兴趣！{mem_clause}多告诉我一些。"],
+            "stress":    ["「{stim}」让我警觉起来了{mem_clause}，需要立刻处理。"],
+            "pleasure":  ["「{stim}」太棒了{mem_clause}！我很愿意回应。"],
+            "calm":      ["关于「{stim}」，我的回应是：{mem_clause}我在听。"],
+        },
+        "弱响应": {
+            "curiosity": ["「{stim}」……有点意思，但我还看不太清。"],
+            "stress":    ["「{stim}」让我有点不安，先观望一下。"],
+            "pleasure":  ["「{stim}」还不错。"],
+            "calm":      ["「{stim}」，嗯，我注意到了。"],
+        },
+        "静默观察": {
+            "curiosity": ["（「{stim}」……{mem_clause}先记下来，慢慢看。）"],
+            "stress":    ["（保持安静，留意「{stim}」的后续。）"],
+            "pleasure":  ["（「{stim}」感觉不错，但不必出声。）"],
+            "calm":      ["（「{stim}」{mem_clause}——静默观察中。）"],
+        },
+    }
+
+    def decide_action(self, stimulus: str = "") -> Dict:
+        """决策输出 → 结构化动作（动作空间接口，v4.0）。
+
+        返回可供外部执行器消费的动作指令：
+          action    — 动作名（ACTION_SPACE 键）
+          verb      — 机器可读动作动词
+          intensity — 动作强度（决策层脉冲占比 0..1）
+          mood      — 主导情绪
+          recalled  — 联想记忆内容列表
+        """
+        spikes = sum(1 for n in self.decision_layer if n.spike)
+        if spikes >= 4:
+            action = "主动响应"
+        elif spikes >= 2:
+            action = "弱响应"
+        else:
+            action = "静默观察"
+        recalled: List[BrainMemory] = []
+        if stimulus:
+            for token in stimulus.replace("，", " ").replace("。", " ").split():
+                if len(token) >= 2:
+                    recalled.extend(self.recall(token, top_k=1))
+        dominant = max(self.emotion, key=lambda k: self.emotion[k])
+        return {
+            "action": action,
+            "verb": self.ACTION_SPACE[action]["verb"],
+            "intensity": round(spikes / len(self.decision_layer), 3),
+            "mood": dominant,
+            "recalled": [m.content for m in recalled[:2]],
+            "tick": self.tick,
+        }
+
+    def express(self, stimulus: str = "") -> Dict:
+        """语言生成模块（v4.0）：决策 → 动作 → 模板化自然语言表达。
+
+        按 (动作 × 主导情绪) 取模板，填充刺激与联想记忆槽位；
+        同一 (动作, 情绪) 的多条模板按 tick 轮转，保证确定性可复现。
+        返回 {"action": <decide_action 结果>, "utterance": str}。
+        """
+        act = self.decide_action(stimulus)
+        table = self._UTTER_TEMPLATES[act["action"]]
+        templates = table.get(act["mood"]) or table["calm"]
+        tpl = templates[self.tick % len(templates)]
+        mem_clause = (f"这让我想起「{act['recalled'][0]}」，"
+                      if act["recalled"] else "")
+        utterance = tpl.format(stim=stimulus or "……", mem_clause=mem_clause)
+        return {"action": act, "utterance": utterance}
+
+    # ------------------ 检索式语言生成（v4.6） ------------------
+
+    # 句法框架：{stim} 刺激 / {mem_chain} 记忆编织从句 / {mood} 情绪修饰
+    _SYNTAX_FRAMES: Dict[str, List[str]] = {
+        "主动响应": [
+            "「{stim}」——{mem_chain}，{mood}之下我必须作出回应。",
+            "面对「{stim}」：{mem_chain}。{mood}地，我给出我的答案。",
+        ],
+        "弱响应": [
+            "「{stim}」……{mem_chain}，{mood}中我先记下一笔。",
+            "关于「{stim}」，{mem_chain}。{mood}地看着事态发展。",
+        ],
+        "静默观察": [
+            "（「{stim}」。{mem_chain}——{mood}地静观其变。）",
+            "（{mood}中，「{stim}」{mem_chain}。）",
+        ],
+    }
+    _MOOD_ADVERBS: Dict[str, str] = {
+        "curiosity": "满怀好奇", "stress": "心存忐忑",
+        "pleasure": "带着欣喜", "calm": "平静",
+    }
+
+    def _retrieve_fragments(self, stimulus: str,
+                            top_k: int = 3) -> List[BrainMemory]:
+        """检索式组合的第一步：从 LTM 检索与刺激相关的记忆片段。
+
+        按刺激的关键词逐词回忆，按内容去重、按记忆权重降序取 top_k——
+        权重最高的片段排在最前，成为编织从句的主线。
+        """
+        found: Dict[str, BrainMemory] = {}
+        for token in stimulus.replace("，", " ").replace("。", " ").split():
+            if len(token) < 2:
+                continue
+            hits = self.recall(token, top_k=top_k)
+            if not hits and len(token) > 3:
+                # 长词未命中 → 退化为 2/3 字 n-gram 子词检索
+                # （"取火的方法" → "取火"、"的方"…，部分匹配也能联想）
+                for n in (3, 2):
+                    hits = [m for i in range(len(token) - n + 1)
+                            for m in self.recall(token[i:i + n], top_k=2)]
+                    if hits:
+                        break
+            for m in hits:
+                if m.content != stimulus and m.content not in found:
+                    found[m.content] = m
+        ranked = sorted(found.values(), key=lambda m: -m.weight)
+        return ranked[:top_k]
+
+    @staticmethod
+    def _weave_memories(mems: List[BrainMemory]) -> str:
+        """记忆编织：把检索到的片段组合成一条自然语言从句"""
+        if not mems:
+            return "这是全新的体验，没有记忆可供引用"
+        if len(mems) == 1:
+            return f"「{mems[0].content}」浮现在脑海"
+        if len(mems) == 2:
+            return f"「{mems[0].content}」和「{mems[1].content}」一起浮现"
+        chain = "」到「".join(m.content for m in mems)
+        return f"思绪从「{chain}」一路联想"
+
+    def compose(self, stimulus: str = "", top_k: int = 3) -> Dict:
+        """检索式语言生成（v4.6）：LTM 片段 + 句法框架组合。
+
+        与 express() 的固定模板不同：
+          1. 检索——_retrieve_fragments() 从 LTM 取出权重最高的
+             top_k 条相关记忆片段；
+          2. 编织——_weave_memories() 按片段数选择单句/并列/联想链结构；
+          3. 造句——句法框架按 (动作 × tick 轮转) 选定，填充刺激、
+             记忆从句与情绪修饰词。
+        返回 {"utterance", "action", "fragments", "frame", "mood"}。
+        """
+        act = self.decide_action(stimulus)
+        mems = self._retrieve_fragments(stimulus, top_k=top_k)
+        mem_chain = self._weave_memories(mems)
+        mood = self._MOOD_ADVERBS.get(act["mood"], "平静")
+        frames = self._SYNTAX_FRAMES[act["action"]]
+        frame = frames[self.tick % len(frames)]
+        utterance = frame.format(stim=stimulus or "……",
+                                 mem_chain=mem_chain, mood=mood)
+        return {"utterance": utterance, "action": act,
+                "fragments": [m.content for m in mems],
+                "frame": frame, "mood": act["mood"]}
+
+    # ------------------ 动作执行器（v4.1 感知-决策-执行-学习闭环） ------------------
+
+    def register_executor(self, fn: Callable,
+                          verb: Optional[str] = None,
+                          default: bool = False) -> None:
+        """注册动作执行器。
+
+        verb：只处理该动作动词（respond / acknowledge / observe）；
+        default=True：作为兜底执行器。执行器契约见 make_robot_executor。
+        """
+        if not callable(fn):
+            raise TypeError("executor 必须是 callable(action) -> "
+                            "{success, reward, detail}")
+        if verb is not None:
+            self.executors[verb] = fn
+        if default or verb is None:
+            self.default_executor = fn
+
+    def act(self, stimulus: str = "",
+            executor: Optional[Callable] = None,
+            policy: Optional[str] = None) -> Dict:
+        """感知 → 决策 → 执行 → 奖励回传 的完整闭环（v4.1）。
+
+        1. express()：决策 + 语言表达；
+        2. 路由执行器：显式传入 > 按 verb 注册 > 默认执行器；
+        3. 执行结果（reward）经 reward_td() 回传——执行后果成为
+           学习信号，多巴胺响应执行成败的"意外程度"；
+        4. 执行器抛异常按失败处理（reward=-0.5），不会中断大脑。
+
+        v4.5：每次执行后按 verb 更新技能价值 Q(verb)；policy 非空时
+        （"greedy" / "epsilon" / "softmax"）由习得价值覆盖决策层
+        的 verb 选择——动作选择策略化。
+
+        返回 {"utterance", "action", "execution", "feedback", "skill"}；
+        无任何执行器时 execution/feedback/skill 为 None（纯决策模式）。
+        """
+        ex = self.express(stimulus)
+        act_dict = ex["action"]
+        if policy is not None:
+            verb = self.select_verb(policy)
+            for name, cfg in self.ACTION_SPACE.items():
+                if cfg["verb"] == verb:
+                    act_dict = dict(act_dict, action=name, verb=verb)
+                    break
+        fn = (executor
+              or self.executors.get(act_dict["verb"])
+              or self.default_executor)
+        execution, feedback, skill = None, None, None
+        if fn is not None:
+            try:
+                execution = fn(act_dict)
+            except Exception as e:
+                execution = {"success": False, "reward": -0.5,
+                             "detail": f"执行器异常：{type(e).__name__}: {e}"}
+            reward_val = float(execution.get("reward", 0.0))
+            feedback = self.reward_td(reward_val)
+            skill = self.learn_skill(act_dict["verb"], reward_val)
+        return {"utterance": ex["utterance"], "action": act_dict,
+                "execution": execution, "feedback": feedback,
+                "skill": skill}
+
+    # ------------------ 执行器技能学习（v4.5） ------------------
+
+    def learn_skill(self, verb: str, reward: float) -> Dict:
+        """按 verb 更新独立技能价值：Q(verb) += α·(r − Q(verb))。
+
+        与 reward_td 的全局 V 不同：每个动作动词有自己的价值轨道，
+        执行后果只记入实际采取的那个动作（信用精确归因）。
+        """
+        reward = self._clip(reward, -1.0, 1.0)
+        q = self.verb_values.get(verb, 0.0)
+        rpe = reward - q
+        self.verb_values[verb] = q + self.skill_alpha * rpe
+        return {"verb": verb, "reward": reward, "rpe": rpe,
+                "q": self.verb_values[verb]}
+
+    def select_verb(self, policy: str = "epsilon") -> str:
+        """按习得技能价值选择动作动词（动作选择策略化）。
+
+        greedy   — 恒选 Q 最高者；
+        epsilon  — 以 ε 概率随机探索，否则 greedy；
+        softmax  — 按 exp(Q/T) 比例抽样（温和探索）。
+        Q 全零（未学习）时三种策略都退化为均匀随机。
+        """
+        verbs = list(self.verb_values)
+        if policy == "softmax":
+            t = max(self.skill_temperature, 1e-3)
+            mx = max(self.verb_values[v] for v in verbs)
+            ws = [math.exp((self.verb_values[v] - mx) / t) for v in verbs]
+            return random.choices(verbs, weights=ws, k=1)[0]
+        if policy == "epsilon" and random.random() < self.effective_epsilon():
+            return random.choice(verbs)
+        best = max(self.verb_values[v] for v in verbs)
+        top = [v for v in verbs if self.verb_values[v] == best]
+        return random.choice(top)
 
     # ------------------ 脉冲思考链（可解释追踪） ------------------
 
@@ -921,6 +1662,371 @@ class BrainSwarm:
             for i, name in enumerate(names)
         ]
         self.generation = 1
+        # v4.1 社交拓扑：个体索引 -> 邻居索引列表；None = 全连接（默认，向后兼容）
+        self.topology: Optional[Dict[int, List[int]]] = None
+
+    # ------------------ 社交拓扑（v4.1） ------------------
+
+    def set_topology(self, kind: str = "fully_connected",
+                     p: float = 0.3, seed: Optional[int] = None) -> Dict[int, List[int]]:
+        """设置种群社交拓扑（文化只沿边传播）。
+
+        kind:
+          fully_connected — 全连接（等价于清空拓扑）
+          ring            — 环形：每个体只连左右相邻两个体
+          star            — 星形：0 号为中心，其余只连中心
+          random          — Erdos-Renyi 随机图（边概率 p）
+          small_world     — 小世界：环形 + 以概率 p 随机重连（捷径）
+        返回邻接表。设置后 horizontal/vertical_transfer 只在邻居间进行。
+        """
+        rng = random.Random(seed) if seed is not None else random
+        n = len(self.population)
+        adj: Dict[int, set] = {i: set() for i in range(n)}
+
+        def link(a: int, b: int):
+            if a != b:
+                adj[a].add(b)
+                adj[b].add(a)
+
+        if kind == "fully_connected":
+            self.topology = None
+            return {i: [j for j in range(n) if j != i] for i in range(n)}
+        if kind == "ring":
+            for i in range(n):
+                link(i, (i + 1) % n)
+        elif kind == "star":
+            for i in range(1, n):
+                link(0, i)
+        elif kind == "random":
+            for i in range(n):
+                for j in range(i + 1, n):
+                    if rng.random() < p:
+                        link(i, j)
+            # 保证连通性下限：孤立个体并回环
+            for i in range(n):
+                if not adj[i]:
+                    link(i, (i + 1) % n)
+        elif kind == "small_world":
+            for i in range(n):
+                link(i, (i + 1) % n)
+            for i in range(n):
+                if rng.random() < p:
+                    j = rng.randrange(n)
+                    link(i, j)
+        else:
+            raise ValueError(f"未知拓扑 {kind!r}：可选 fully_connected / "
+                             f"ring / star / random / small_world")
+        self.topology = {i: sorted(s) for i, s in adj.items()}
+        return self.topology
+
+    def _neighbors(self, idx: int) -> List[int]:
+        """个体的社交邻居索引；无拓扑（全连接）时返回所有其他个体"""
+        if self.topology is None:
+            return [j for j in range(len(self.population)) if j != idx]
+        return self.topology.get(idx, [])
+
+    def _edge_count(self) -> int:
+        """当前社交边总数（无拓扑 = 全连接的边数）"""
+        n = len(self.population)
+        if self.topology is None:
+            return n * (n - 1) // 2
+        return sum(len(v) for v in self.topology.values()) // 2
+
+    # ------------------ 拓扑自适应：共同演化网络（v4.2） ------------------
+
+    def rewire_coevolve(self, meme: str, rewire_prob: float = 0.5,
+                        min_degree: int = 1,
+                        birth_prob: float = 0.5) -> Dict[str, int]:
+        """Holme-Newman 共同演化一步：共识压力反作用于社交边的生灭。
+
+        "观点" = 是否持有目标模因（二态）。每轮做 N 次尝试（N=种群数）。
+        每次随机选个体 i，三种事件：
+
+          1.【异见边博弈】选 i 的一个邻居 j，观点不同则二选一：
+             - 以 φ=rewire_prob【断边重连】：断 i−j（道不同不相谋），
+               i 重连到同道随机非邻居（向同道靠拢）；
+             - 以 1−φ【观点模仿】：持有方当场把模因教给未持有方
+               （权重 ×0.8）——文化沿异见边传播。
+          2.【求知连边】（边之"生"）：若 i 未持有模因而种群中存在持有者，
+             以 birth_prob 概率主动向随机持有者连一条新边——
+             共识压力驱动个体向知识靠拢，补充被断边消耗的异见通道。
+
+        φ 是核心参数：φ→0 传播主导、网络近似静态；φ→1 结构主导、
+        网络在共识前分裂（模因被封印在持有者社团内）。
+        min_degree 防孤立；求知连边使边总数可增长（生灭不守恒）。
+        返回 {"rewired", "copied", "born"} 计数。
+        """
+        if self.topology is None:  # 全连接无演化空间
+            return {"rewired": 0, "copied": 0, "born": 0}
+        n = len(self.population)
+
+        def holds(k: int) -> bool:
+            return any(m.content == meme for m in self.population[k].long_memory)
+
+        rewired = copied = born = 0
+        for _ in range(n):
+            i = random.randrange(n)
+            hi = holds(i)
+            # 事件 2：求知连边（未持有者向持有者靠拢）
+            if not hi and random.random() < birth_prob:
+                cands = [k for k in range(n)
+                         if k != i and holds(k)
+                         and k not in self.topology[i]]
+                if cands:
+                    k = random.choice(cands)
+                    self.topology[i].append(k)
+                    self.topology[i].sort()
+                    self.topology[k].append(i)
+                    self.topology[k].sort()
+                    born += 1
+            # 事件 1：异见边博弈
+            nbrs = self.topology.get(i, [])
+            if not nbrs:
+                continue
+            j = random.choice(nbrs)
+            hj = holds(j)
+            if hi == hj:
+                continue                      # 同道：边保留
+            if random.random() < rewire_prob:
+                # 断边重连（保持最小度，防孤立）
+                if len(self.topology[i]) <= min_degree:
+                    continue
+                self.topology[i].remove(j)
+                self.topology[j].remove(i)
+                cands = [k for k in range(n)
+                         if k != i and k not in self.topology[i]
+                         and holds(k) == hi]
+                if cands:
+                    k = random.choice(cands)
+                    self.topology[i].append(k)
+                    self.topology[i].sort()
+                    self.topology[k].append(i)
+                    self.topology[k].sort()
+                rewired += 1
+            else:
+                # 观点模仿：持有方把模因当场教给未持有方
+                teacher, student = (j, i) if hj else (i, j)
+                src = next(m for m in self.population[teacher].long_memory
+                           if m.content == meme)
+                self.population[student].long_memory.append(BrainMemory(
+                    content=meme, timestamp=time.time(),
+                    weight=src.weight * 0.8, tag="culture"))
+                copied += 1
+        return {"rewired": rewired, "copied": copied, "born": born}
+
+    def same_state_edge_ratio(self, meme: str) -> float:
+        """同道边比例：两端观点（是否持有模因）相同的边占比。
+        共同演化的结构观测量：趋 1 = 网络按观点自组织成团。"""
+        if self.topology is None:
+            return 1.0
+        holds = [any(m.content == meme for m in b.long_memory)
+                 for b in self.population]
+        total, same = 0, 0
+        for i, nbrs in self.topology.items():
+            for j in nbrs:
+                if j > i:
+                    total += 1
+                    if holds[i] == holds[j]:
+                        same += 1
+        return same / total if total else 1.0
+
+    # ------------------ 多模因竞争（v4.3） ------------------
+
+    def _stance(self, idx: int, memes) -> Optional[str]:
+        """个体在竞争模因集合中的立场：权重最高的竞争模因；均无则 None"""
+        best, best_w = None, -1.0
+        for m in self.population[idx].long_memory:
+            if m.content in memes and m.weight > best_w:
+                best, best_w = m.content, m.weight
+        return best
+
+    def compete_coevolve(self, memes: List[str],
+                         rewire_prob: float = 0.5,
+                         birth_prob: float = 0.5,
+                         min_degree: int = 1) -> Dict[str, int]:
+        """多模因竞争的共同演化一步（Axelrod/多态投票者风格）。
+
+        立场 = 个体持有的最强竞争模因（或 None）。每轮 N 次尝试：
+
+          1.【阵营连边】（边之生）：有立场者以 birth_prob 概率
+             向同立场非邻居连新边——阵营内聚。
+          2.【异见边博弈】：随机邻居立场不同则二选一——
+             - 以 φ【断边重连】：断边，重连到同立场个体（阵营隔离）；
+             - 以 1−φ【立场转化】：强势一方把弱势一方转化为自己的
+               立场（学生移除全部竞争模因，改持教师模因 ×0.8）；
+               一方无立场时，有立场方恒为教师（学习）。
+
+        φ 低 → 转化主导，一个模因垄断全网（共识）；
+        φ 高 → 隔离主导，阵营各自封闭，多模因极化共存。
+        返回 {"rewired", "converted", "born"}。
+        """
+        if self.topology is None:  # 全连接无演化空间
+            return {"rewired": 0, "converted": 0, "born": 0}
+        n = len(self.population)
+        rewired = converted = born = 0
+        for _ in range(n):
+            i = random.randrange(n)
+            si = self._stance(i, memes)
+            # 事件 1：阵营连边
+            if si is not None and random.random() < birth_prob:
+                cands = [k for k in range(n)
+                         if k != i and k not in self.topology[i]
+                         and self._stance(k, memes) == si]
+                if cands:
+                    k = random.choice(cands)
+                    self.topology[i].append(k)
+                    self.topology[i].sort()
+                    self.topology[k].append(i)
+                    self.topology[k].sort()
+                    born += 1
+            # 事件 2：异见边博弈
+            nbrs = self.topology.get(i, [])
+            if not nbrs:
+                continue
+            j = random.choice(nbrs)
+            sj = self._stance(j, memes)
+            if si == sj:
+                continue                      # 同阵营（含双双无立场）
+            if random.random() < rewire_prob:
+                if len(self.topology[i]) <= min_degree:
+                    continue
+                cands = [k for k in range(n)
+                         if k != i and k not in self.topology[i]
+                         and self._stance(k, memes) == si]
+                if not cands:
+                    continue
+                self.topology[i].remove(j)
+                self.topology[j].remove(i)
+                k = random.choice(cands)
+                self.topology[i].append(k)
+                self.topology[i].sort()
+                self.topology[k].append(i)
+                self.topology[k].sort()
+                rewired += 1
+            else:
+                # 立场转化：教师随机（投票者模型）——
+                # 一方无立场时，有立场方恒为教师（学习）
+                if si is None and sj is None:
+                    continue
+                if si is None:
+                    teacher, student = j, i
+                elif sj is None:
+                    teacher, student = i, j
+                else:
+                    teacher, student = random.choice([(i, j), (j, i)])
+                win = self._stance(teacher, memes)
+                src = next(m for m in self.population[teacher].long_memory
+                           if m.content == win)
+                sb = self.population[student]
+                sb.long_memory[:] = [m for m in sb.long_memory
+                                     if m.content not in memes]
+                sb.long_memory.append(BrainMemory(
+                    content=win, timestamp=time.time(),
+                    weight=src.weight * 0.8, tag="culture"))
+                converted += 1
+        return {"rewired": rewired, "converted": converted, "born": born}
+
+    def competition_dynamics(self, memes: List[str], max_rounds: int = 60,
+                             dominance: float = 0.9,
+                             rewire_prob: float = 0.5,
+                             birth_prob: float = 0.5) -> Dict:
+        """多模因竞争动力学：垄断（共识）vs 极化（共存）的判定实验。
+
+        每轮一次 compete_coevolve，记录各模因立场覆盖率与阵营数曲线；
+        某模因覆盖率达 dominance 判为垄断收敛；max_rounds 后仍多阵营
+        并存判为极化共存。
+
+        返回 {"memes", "winner", "converged", "rounds",
+              "coverage": {meme: [...]}, "camps": [...],
+              "same_stance_ratio": [...], "final": {meme: 覆盖率}}。
+        """
+        n = len(self.population)
+        cov: Dict[str, list] = {m: [] for m in memes}
+        camps_series, ratio_series = [], []
+        converted_total = rewired_total = born_total = 0
+        for r in range(1, max_rounds + 1):
+            ops = self.compete_coevolve(memes, rewire_prob=rewire_prob,
+                                        birth_prob=birth_prob)
+            converted_total += ops["converted"]
+            rewired_total += ops["rewired"]
+            born_total += ops["born"]
+            stances = [self._stance(k, memes) for k in range(n)]
+            for m in memes:
+                cov[m].append(round(
+                    sum(1 for s in stances if s == m) / n, 3))
+            camps = sum(1 for m in memes if cov[m][-1] > 0)
+            camps_series.append(camps)
+            # 同立场边比例
+            total_e = same_e = 0
+            for i, nbrs in self.topology.items():
+                for j in nbrs:
+                    if j > i:
+                        total_e += 1
+                        if stances[i] == stances[j]:
+                            same_e += 1
+            ratio_series.append(round(same_e / total_e, 3) if total_e else 1.0)
+            leader = max(memes, key=lambda m: cov[m][-1])
+            if cov[leader][-1] >= dominance:
+                return {"memes": memes, "winner": leader, "converged": True,
+                        "rounds": r, "coverage": cov,
+                        "camps": camps_series,
+                        "same_stance_ratio": ratio_series,
+                        "final": {m: cov[m][-1] for m in memes},
+                        "converted_total": converted_total,
+                        "rewired_total": rewired_total,
+                        "born_total": born_total}
+        return {"memes": memes, "winner": None, "converged": False,
+                "rounds": None, "coverage": cov, "camps": camps_series,
+                "same_stance_ratio": ratio_series,
+                "final": {m: cov[m][-1] for m in memes},
+                "converted_total": converted_total,
+                "rewired_total": rewired_total,
+                "born_total": born_total}
+
+    def coevolve_consensus(self, meme: str, max_rounds: int = 60,
+                           threshold: float = 0.9,
+                           rewire_prob: float = 0.5,
+                           birth_prob: float = 0.5) -> Dict:
+        """共同演化共识实验：异见边上的"传播 vs 断边"逐轮博弈 + 求知连边。
+
+        每轮执行一次 rewire_coevolve（观点模仿 / 断边重连 / 求知连边），
+        记录覆盖率、边数、同道边比例三条曲线，直到覆盖率达 threshold。
+
+        返回 {"rounds", "converged", "coverage", "edges",
+              "same_state_ratio", "final_degree",
+              "rewired_total", "copied_total", "born_total"}。
+        """
+        coverage, edges, ratios = [], [], []
+        rewired_total = copied_total = born_total = 0
+        for r in range(1, max_rounds + 1):
+            ops = self.rewire_coevolve(meme, rewire_prob=rewire_prob,
+                                       birth_prob=birth_prob)
+            rewired_total += ops["rewired"]
+            copied_total += ops["copied"]
+            born_total += ops["born"]
+            have = sum(1 for b in self.population
+                       if any(m.content == meme for m in b.long_memory))
+            cov = have / len(self.population)
+            coverage.append(round(cov, 3))
+            edges.append(self._edge_count())
+            ratios.append(round(self.same_state_edge_ratio(meme), 3))
+            if cov >= threshold:
+                return {"rounds": r, "converged": True,
+                        "coverage": coverage, "edges": edges,
+                        "same_state_ratio": ratios,
+                        "rewired_total": rewired_total,
+                        "copied_total": copied_total,
+                        "born_total": born_total,
+                        "final_degree": round(2 * edges[-1] /
+                                              len(self.population), 2)}
+        return {"rounds": None, "converged": False,
+                "coverage": coverage, "edges": edges,
+                "same_state_ratio": ratios,
+                "rewired_total": rewired_total,
+                "copied_total": copied_total,
+                "born_total": born_total,
+                "final_degree": round(2 * edges[-1] /
+                                      len(self.population), 2)}
 
     def broadcast(self, text: str) -> List[str]:
         """同一刺激广播给全种群（模拟共同经历 / 公共事件）"""
@@ -960,16 +2066,152 @@ class BrainSwarm:
                     transfers += 1
         return transfers
 
+    # ------------------ 水平 vs 垂直传播动力学（v4.0） ------------------
+
+    def horizontal_transfer(self, rounds: int = 1, top_k: int = 3) -> int:
+        """水平传播：同代同伴之间的文化传递（同伴学习 / 模因扩散）。
+
+        只在与学习者同世代的个体中选传授者——模拟同侪间的信息扩散，
+        速度快、范围广，但易受同代噪声影响。
+        """
+        transfers = 0
+        for _ in range(rounds):
+            si = random.randrange(len(self.population))
+            student = self.population[si]
+            nbrs = set(self._neighbors(si))  # v4.1：只沿社交边传播
+            peers = [b for j, b in enumerate(self.population)
+                     if j in nbrs and b.generation == student.generation]
+            if not peers:
+                continue
+            teacher = random.choice(peers)
+            transfers += self._transfer_top(teacher, student, top_k)
+        return transfers
+
+    def vertical_transfer(self, rounds: int = 1, top_k: int = 3) -> int:
+        """垂直传播：跨代文化传递（师承 / 传统继承）。
+
+        传授者严格来自比学习者更早的世代——模拟代际传承，
+        内容稳定、保真度高，但覆盖面受代际数量限制。
+        """
+        transfers = 0
+        for _ in range(rounds):
+            si = random.randrange(len(self.population))
+            student = self.population[si]
+            nbrs = set(self._neighbors(si))  # v4.1：只沿社交边传播
+            # 只有更早世代且确有长期记忆的个体才能充当师承者
+            elders = [b for j, b in enumerate(self.population)
+                      if j in nbrs and b.generation < student.generation
+                      and b.long_memory]
+            if not elders:
+                continue
+            teacher = random.choice(elders)
+            transfers += self._transfer_top(teacher, student, top_k)
+        return transfers
+
+    @staticmethod
+    def _transfer_top(teacher: "AIBrainEntity", student: "AIBrainEntity",
+                      top_k: int) -> int:
+        """把教师最强的 top_k 条 LTM 以 DNA 方式复制给学生（权重 ×0.8）"""
+        pool = sorted(teacher.long_memory,
+                      key=lambda m: m.weight, reverse=True)[:top_k]
+        n = 0
+        for m in pool:
+            if all(x.content != m.content for x in student.long_memory):
+                student.long_memory.append(BrainMemory(
+                    content=m.content, timestamp=time.time(),
+                    weight=m.weight * 0.8, tag="culture"))
+                n += 1
+        return n
+
+    def transmission_dynamics(self, meme: str, rounds: int = 6,
+                              direction: str = "horizontal") -> Dict:
+        """追踪一个模因在种群中的逐轮扩散曲线（水平 vs 垂直对照用）。
+
+        返回 {"direction": ..., "coverage": [每轮结束时持有该模因的个体比例]}。
+        """
+        spread = {"horizontal": self.horizontal_transfer,
+                  "vertical": self.vertical_transfer}[direction]
+        coverage = []
+        for _ in range(rounds):
+            spread(rounds=1, top_k=3)
+            have = sum(1 for b in self.population
+                       if any(m.content == meme for m in b.long_memory))
+            coverage.append(round(have / len(self.population), 3))
+        return {"direction": direction, "meme": meme, "coverage": coverage}
+
+    def consensus_convergence(self, meme: str, max_rounds: int = 40,
+                              threshold: float = 0.9,
+                              direction: str = "horizontal") -> Dict:
+        """共识收敛速度：模因覆盖率首次达到 threshold 所需的传播轮数。
+
+        共识涌现相变研究的核心观测量——拓扑越连通、种群越小，
+        收敛轮数越少；达到 max_rounds 仍未收敛则 rounds 为 None。
+        返回 {"rounds": int|None, "coverage": [...], "converged": bool}。
+        """
+        spread = {"horizontal": self.horizontal_transfer,
+                  "vertical": self.vertical_transfer}[direction]
+        coverage = []
+        for r in range(1, max_rounds + 1):
+            spread(rounds=1, top_k=3)
+            have = sum(1 for b in self.population
+                       if any(m.content == meme for m in b.long_memory))
+            cov = have / len(self.population)
+            coverage.append(round(cov, 3))
+            if cov >= threshold:
+                return {"rounds": r, "coverage": coverage,
+                        "threshold": threshold, "converged": True}
+        return {"rounds": None, "coverage": coverage,
+                "threshold": threshold, "converged": False}
+
+    def consensus(self, stimulus: Optional[str] = None) -> Dict:
+        """群体共识涌现度量（v4.0）。
+
+        记忆共识：种群中最广泛共享的 LTM 内容的持有比例
+                  （文化是否收敛到共同记忆）；
+        行动共识（传入 stimulus 时）：广播刺激后最多数派动作的比例
+                  （群体行为是否一致）。1.0 = 完全共识。
+        """
+        n = len(self.population)
+        # 记忆共识
+        holder: Dict[str, int] = {}
+        for b in self.population:
+            for m in {x.content for x in b.long_memory}:
+                holder[m] = holder.get(m, 0) + 1
+        mem_top, mem_idx = (None, 0.0)
+        if holder:
+            mem_top = max(holder, key=lambda k: holder[k])
+            mem_idx = round(holder[mem_top] / n, 3)
+        result: Dict[str, object] = {
+            "population": n,
+            "memory_consensus": {"shared_content": mem_top, "index": mem_idx},
+        }
+        # 行动共识
+        if stimulus is not None:
+            self.broadcast(stimulus)
+            dist: Dict[str, int] = {}
+            for b in self.population:
+                a = b.decide_action(stimulus)["action"]
+                dist[a] = dist.get(a, 0) + 1
+            top_action = max(dist, key=lambda k: dist[k])
+            result["action_consensus"] = {
+                "stimulus": stimulus,
+                "distribution": dist,
+                "majority_action": top_action,
+                "index": round(dist[top_action] / n, 3),
+            }
+        return result
+
     def reproduce(self, parent_idx: int, child_name: str,
                   mutation: float = 0.02) -> AIBrainEntity:
         """有性繁衍简化版：克隆父代 DNA，突触权重加小幅变异，
-        子代加入种群（模拟代际演化）。"""
+        子代加入种群（模拟代际演化）。子代世代 = 父代 + 1（v4.0）。"""
         parent = self.population[parent_idx]
         dna = parent.dump_dna()
         for k in dna["synapse"]:
             dna["synapse"][k] = min(1.0, max(0.0,
                 dna["synapse"][k] + random.uniform(-mutation, mutation)))
         child = AIBrainEntity.from_dna(dna, new_name=child_name)
+        child.generation = parent.generation + 1
         self.population.append(child)
         self.generation += 1
         return child
@@ -1051,6 +2293,167 @@ if __name__ == "__main__":
         hit = b.recall("火焰")
         print(f"  {b.name}: LTM={len(b.long_memory)}  "
               f"回忆'火焰' -> {[m.content for m in hit] or '无'}")
+
+    print("\n--- v4.0 可学习投影：替代线性插值重采样 ---")
+    proj_brain = AIBrainEntity("ProjBrain", seed=42)
+    proj_brain.enable_projection(True)
+    rng42 = random.Random(7)
+    cat = [rng42.uniform(-1, 1) for _ in range(512)]
+    print(f"  -> {proj_brain.sensory_input_vector(cat, label='稠密 embedding')}")
+    print(f"  投影训练步数={proj_brain._projections[512].train_steps}（Oja 在线 PCA）")
+
+    print("\n--- v4.0 RPE/TD 误差：奖励被预测后多巴胺反应衰减 ---")
+    td_brain = AIBrainEntity("TDBrain", seed=7)
+    r1 = td_brain.reward_td(0.8)
+    print(f"  第 1 次奖励 0.8: RPE={r1['rpe']:+.3f} V={r1['value_estimate']:.3f}")
+    for _ in range(30):
+        td_brain.reward_td(0.8)
+    r2 = td_brain.reward_td(0.8)
+    print(f"  第 32 次奖励 0.8: RPE={r2['rpe']:+.3f} V={r2['value_estimate']:.3f}（已预测）")
+    r3 = td_brain.reward_td(-0.5)
+    print(f"  突变为 -0.5: RPE={r3['rpe']:+.3f}（意外重现）")
+
+    print("\n--- v4.0 动作空间与语言生成 ---")
+    for s in ["火焰是危险的", "今天天气晴朗"]:
+        brain.sensory_input(s)
+        ex = brain.express(s)
+        a = ex["action"]
+        print(f"  输入「{s}」")
+        print(f"    动作={a['action']}(verb={a['verb']}, 强度={a['intensity']})"
+              f"  情绪={a['mood']}")
+        print(f"    表达: {ex['utterance']}")
+
+    print("\n--- v4.0 文化动力学：水平 vs 垂直传播 + 共识涌现 ---")
+    swarm2 = BrainSwarm(["E1", "E2", "E3"], seed=1)
+    for _ in range(25):
+        swarm2.population[0].sensory_input("钻木可以取火")
+    child = swarm2.reproduce(0, "F1")
+    child.long_memory.clear()
+    hor = swarm2.transmission_dynamics("钻木可以取火", rounds=4,
+                                       direction="horizontal")
+    print(f"  水平传播覆盖率: {hor['coverage']}")
+    swarm2.vertical_transfer(rounds=20, top_k=1)
+    print(f"  垂直传播后子代 LTM: {[m.content for m in child.long_memory]}")
+    con = swarm2.consensus(stimulus="钻木可以取火")
+    print(f"  记忆共识指数={con['memory_consensus']['index']}  "
+          f"行动共识={con['action_consensus']['majority_action']}"
+          f"({con['action_consensus']['index']})")
+
+    print("\n--- v4.1 动作执行器：决策 → 机器人执行 → 奖励回传闭环 ---")
+    robot_brain = AIBrainEntity("RobotBrain", seed=42)
+    robot_brain.register_executor(make_robot_executor(strictness=0.1),
+                                  default=True)
+    for s in ["火焰是危险的", "今天天气晴朗"]:
+        out = robot_brain.act(s)
+        print(f"  输入「{s}」-> {out['action']['verb']}")
+        print(f"    执行: {out['execution']['detail']}")
+        fb = out["feedback"]
+        print(f"    反馈: RPE={fb['rpe']:+.3f} V={fb['value_estimate']:.3f} "
+              f"多巴胺={fb['dopamine']:+.2f}")
+
+    print("\n--- v4.1 社交拓扑对共识收敛的影响 ---")
+    for topo in ("fully_connected", "ring", "small_world"):
+        sw = BrainSwarm([f"T{i}" for i in range(8)], seed=1)
+        for _ in range(25):
+            sw.population[0].sensory_input("钻木可以取火")
+        sw.set_topology(topo, seed=1)
+        conv = sw.consensus_convergence("钻木可以取火", max_rounds=60,
+                                        threshold=0.9)
+        r = conv["rounds"] if conv["converged"] else ">60"
+        print(f"  {topo:<16} 收敛轮数={r}")
+
+    print("\n--- v4.4 TD(λ) 资格迹：信用分配跨 tick 反向传播 ---")
+    lam_brain = AIBrainEntity("LambdaBrain", seed=1)
+    cues = ["铃声", "灯光", "气味"]          # 三线索链 → 奖励
+    for trial in range(1, 21):
+        for c in cues:
+            lam_brain.sensory_input(c)
+        r = lam_brain.reward_lambda(1.0)
+        if trial in (1, 5, 20):
+            vs = {k: round(v, 3) for k, v in r["state_values"].items()}
+            print(f"  试次{trial:2d}: RPE={r['rpe']:+.3f}  V={vs}")
+    print(f"  -> 越靠近奖励的线索价值越高（γλ 梯度），"
+          f"RPE 从 1.0 衰减到 {r['rpe']:+.3f}（奖励被最早线索预测）")
+
+    print("\n--- v4.5 执行器技能学习：分 verb 独立价值 + 策略化选择 ---")
+    skill_brain = AIBrainEntity("SkillBrain", seed=1)
+    skill_brain.skill_epsilon = 0.4   # 基础 ε 调高：低新奇时 ε_eff=0.2，
+                                      # 保证探索能找到最优动作（避免锁死次优）
+    mock = {"respond": 0.8, "acknowledge": 0.2, "observe": -0.4}
+    for verb, rv in mock.items():
+        skill_brain.register_executor(
+            (lambda r: (lambda a: {"success": r > 0, "reward": r,
+                                   "detail": "mock"}))(rv), verb=verb)
+    for _ in range(40):                      # ε-greedy 探索中学习
+        skill_brain.act("火焰是危险的", policy="epsilon")
+    q = {k: round(v, 3) for k, v in skill_brain.verb_values.items()}
+    print(f"  40 轮后技能价值 Q={q}")
+    picks = [skill_brain.act("火焰是危险的", policy="greedy")["action"]["verb"]
+             for _ in range(20)]
+    print(f"  greedy 策略 20 次选择: {picks.count('respond')}/20 选 respond"
+          f"（Q 最高的动作胜出）")
+
+    print("\n--- v4.6 检索式语言生成：LTM 片段 + 句法框架 ---")
+    comp_brain = AIBrainEntity("CompBrain", seed=1)
+    for _ in range(30):
+        comp_brain.sensory_input("火焰是危险的")
+    for _ in range(20):
+        comp_brain.sensory_input("钻木可以取火")
+    for _ in range(15):
+        comp_brain.sensory_input("燧石可以取火")
+    for s in ["取火的方法", "取火 火焰", "完全陌生的东西"]:
+        comp_brain.sensory_input(s)
+        c = comp_brain.compose(s)
+        print(f"  「{s}」片段={len(c['fragments'])}: "
+              f"{[f[:6] + '…' for f in c['fragments']]}")
+        print(f"    {c['utterance']}")
+
+    print("\n--- v4.7 情景记忆时间索引：'上次……之后' 式时间推理 ---")
+    ep_brain = AIBrainEntity("EpBrain", seed=1)
+    for s in ["起床", "刷牙", "吃早餐", "出门", "刷牙", "上班"]:
+        ep_brain.sensory_input(s)
+    r = ep_brain.events_after("刷牙")
+    print(f"  锚点「刷牙」@tick{r['anchor']['tick']}（上次，覆盖更早的一次）")
+    for e in r["events"]:
+        print(f"    +{e['delta']} tick 之后: {e['content']}")
+    r2 = ep_brain.events_before("吃早餐")
+    print(f"  「吃早餐」之前: "
+          f"{[(e['content'], e['delta']) for e in r2['events']]}")
+    print(f"  情景共现: tick3 与 {ep_brain.episodes[2]['context']} 同时经历")
+
+    print("\n--- v4.8 睡眠-清醒节律：离线重放固化 + 突触稳态缩放 ---")
+    sleep_brain = AIBrainEntity("SleepBrain", seed=1)
+    sleep_brain.sensory_input("萤火虫在夜里发光")   # 弱刺激：白天无法固化
+    sleep_brain.sensory_input("另一个无关刺激")
+    sleep_brain.reward(-0.8)
+    print(f"  睡前: STM={len(sleep_brain.short_memory)} "
+          f"LTM={len(sleep_brain.long_memory)} "
+          f"压力={sleep_brain.emotion['stress']:.2f}")
+    r = sleep_brain.sleep(cycles=3)
+    print(f"  睡眠 3 周期: 重放{r['replayed']}条 固化{r['consolidated']}条 "
+          f"压力 {r['stress_before']}→{r['stress_after']}")
+    print(f"  醒后: STM={len(sleep_brain.short_memory)} "
+          f"LTM={len(sleep_brain.long_memory)}（弱刺激经重放完成固化）")
+    deep = AIBrainEntity("DeepSleep", seed=1)
+    before = len(deep.synapse)
+    r2 = deep.sleep(cycles=12)
+    print(f"  深睡 12 周期: 突触 {before}→{r2['synapses']}"
+          f"（剪除 {r2['pruned_synapses']} 条弱连接，强连接存活）")
+
+    print("\n--- v4.9 好奇驱动探索：新奇度反向调制注意与 ε ---")
+    nov_brain = AIBrainEntity("NovBrain", seed=1)
+    for _ in range(30):
+        nov_brain.sensory_input("火焰是危险的")
+    for s in ["火焰", "量子纠缠态坍缩", "火焰"]:
+        nov_brain.sensory_input(s)
+        tag = "熟悉" if s == "火焰" else "全新"
+        print(f"  {tag}「{s}」: 新奇度={nov_brain.novelty:.2f} "
+              f"注意={nov_brain.attention_factor:.2f} "
+              f"ε_eff={nov_brain.effective_epsilon():.3f}")
+    nov_brain.reward_lambda(1.0)     # 大意外
+    nov_brain.sensory_input("火焰")
+    print(f"  大意外后「火焰」: 新奇度={nov_brain.novelty:.2f}"
+          f"（|RPE| 让熟悉刺激也重获注意）")
 
     print("\n--- 反复强化记忆（触发 STM -> LTM 固化）---")
     for _ in range(30):

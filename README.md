@@ -5,7 +5,8 @@
 一个**纯原生 Python** 实现的类脑智能体架构：不依赖任何第三方库即可运行，
 模拟生物大脑的感知、学习、记忆、情绪与决策全过程。v3.0 起支持
 STDP 脉冲时序可塑性、多巴胺样奖励强化学习、真实多模态（CLIP/Whisper）
-接入与多实体群体智能。
+接入与多实体群体智能；v4.0 落地四大扩展：可学习投影、RPE/TD 误差学习、
+水平/垂直文化动力学与共识涌现、动作空间与语言生成。
 
 ## 它是什么
 
@@ -36,17 +37,39 @@ STDP 脉冲时序可塑性、多巴胺样奖励强化学习、真实多模态（
 | **群体智能** | 文化传递 | `BrainSwarm`：记忆跨实体传递、广播、带变异繁衍 |
 | **脉冲思考链** | 可解释性 | `thought_chain()`：把感知→传导→回响→决策展开为可读的脉冲因果链 |
 | 多模态接口 | 感官通道 | **可插拔自定义模型**：注册自定义编码器 / 更换 CLIP、Whisper 模型名（未装依赖自动降级伪 embedding） |
+| **可学习投影** | 感觉皮层映射 | `LearnableProjection`：随机投影 + Oja 在线 PCA，保符号中心化归一化，保留稠密 embedding 对比度 |
+| **RPE/TD 学习** | 多巴胺预测误差 | `reward_td()`：δ = r − V 驱动多巴胺，奖励被预测后反应自然衰减 |
+| **动作空间** | 运动输出 | `decide_action()`：决策层脉冲 → 结构化动作指令（verb/强度/情绪） |
+| **语言生成** | 布洛卡区 | `express()`：按 (动作 × 情绪) 模板生成自然语言，引用联想记忆 |
+| **动作执行器** | 效应器 | `act()`：决策→机器人/HTTP API 执行→`reward_td` 奖励回传闭环 |
+| **文化动力学** | 水平/垂直传播 | `horizontal_transfer` / `vertical_transfer` + `consensus()` 共识涌现度量 |
+| **社交拓扑** | 社会网络 | `set_topology()`：全连接/环/星/随机/小世界，`consensus_convergence()` 测相变收敛速度 |
+| **拓扑自适应** | 共同演化网络 | `rewire_coevolve()`：异见边"模仿 vs 断边重连"博弈 + 求知连边，共识压力驱动边生灭 |
+| **多模因竞争** | 文化生态 | `competition_dynamics()`：立场转化 vs 阵营隔离，φ 决定垄断共识或极化共存 |
+| **资格迹** | 多巴胺时序迁移 | `reward_lambda()`：TD(λ) 按迹强度把 RPE 反向分配给近期状态，信用分配跨 tick 传播 |
+| **技能学习** | 纹状体动作选择 | `learn_skill()` + `select_verb()`：分 verb 独立价值 Q，greedy/ε-greedy/softmax 策略化选择 |
+| **检索式语言** | 布洛卡区+海马 | `compose()`：LTM 片段检索（n-gram 降级）→ 记忆编织（单句/并列/联想链）→ 句法框架造句 |
+| **情景记忆** | 海马时间细胞 | `episodes` + `events_after()`/`events_before()`：何时发生、与何事共现，"上次……之后"式时间推理 |
+| **睡眠节律** | 记忆重放+SHY | `sleep()`：离线重放固化弱记忆，突触等比缩放剪除弱连接（保留相对差异），压力恢复 |
+| **好奇驱动** | 新奇性注意捕获 | `_assess_novelty()`：未命中率+|RPE| 评估新奇度，当 tick 提升注意，`effective_epsilon()` 新奇→多探索/熟悉→多利用 |
+
+## 依赖说明
+
+核心模块零第三方依赖，仅需 Python 3.8+ 标准库；实验绘图需要
+matplotlib/seaborn/pandas；多模态真实编码需要 transformers/torch
+（不装自动降级为伪 embedding，不影响核心功能）。
 
 ## 快速开始
 
 ```bash
 pip install -r requirements.txt   # 仅实验复现脚本需要（核心模块零依赖）
 
-python ai_brain_entity.py    # 运行内置演示（含 STDP/奖励/多模态/群体演示）
-python swarm.py              # 群体文化传递演示（定向传递+变异+世代链）
+python ai_brain_entity.py    # 运行内置演示（含 STDP/奖励/多模态/群体/v4.0/v4.1 演示）
+python swarm.py              # 群体文化传递演示（定向传递+变异+世代链+相变扫描+多模因竞争）
 python experiments.py        # 复现实验 1-8（统一入口，生成 figures/ 与 data/ 结果）
+python encoder_status.py        # 观测台编码器面板数据（另两个导出器：brain_activity_trace / thought_chain_scenarios）
 python run_all.py               # 一键全流程：测试 → 演示 → 实验 → 观测数据（--quick 快速模式）
-python -m unittest discover tests  # 运行核心行为测试（24 项）
+python -m unittest discover tests  # 运行核心行为测试（100 项）
 ```
 
 ```python
@@ -78,6 +101,124 @@ set_whisper_model("large-v3")
 # 3) 查看当前编码器状态
 print(list_encoders())
 
+# ===== v4.0 四大扩展 =====
+
+# 可学习投影：替代线性插值，保留稠密 embedding 对比度
+brain.enable_projection(True)
+brain.sensory_input_vector(dense_vec, label="512 维 embedding")  # 投影 + Oja 在线训练
+
+# RPE/TD 误差：多巴胺响应"意外"而非奖励本身
+brain.reward_td(0.8)        # 首次：RPE=+0.800（意外）
+# ... 重复 30 次后：RPE≈0（奖励被预测，多巴胺不再波动）
+# 突然给 -0.5：RPE=-1.3（意外重现）
+
+# 动作空间 + 语言生成
+act = brain.decide_action("火焰是危险的")   # {"action","verb","intensity","mood","recalled"}
+ex = brain.express("火焰是危险的")          # {"action":..., "utterance": "（「火焰是危险的」——静默观察中。）"}
+
+# 文化动力学：水平（同代）vs 垂直（跨代）+ 共识涌现
+swarm2 = BrainSwarm(["E1", "E2", "E3"], seed=1)
+swarm2.reproduce(0, "F1")                                # 子代 generation=2
+swarm2.horizontal_transfer(rounds=6)                     # 同伴扩散
+swarm2.vertical_transfer(rounds=6)                       # 师承传递
+dyn = swarm2.transmission_dynamics("钻木可以取火", rounds=4, direction="horizontal")
+con = swarm2.consensus(stimulus="钻木可以取火")          # 记忆共识 + 行动共识指数
+
+# ===== v4.1 扩展 =====
+
+# 动作执行器闭环：决策 → 执行 → 执行结果回传为奖励
+from ai_brain_entity import make_robot_executor, make_api_executor
+brain.register_executor(make_robot_executor(strictness=0.3), default=True)
+brain.register_executor(make_api_executor("https://example.com/act"), verb="respond")
+out = brain.act("火焰是危险的")
+# out = {"utterance", "action", "execution": {success, reward, detail},
+#        "feedback": reward_td 回传结果} —— 执行成败的"意外"驱动多巴胺
+
+# 社交拓扑 + 共识相变：文化只沿社交边传播
+swarm2.set_topology("small_world", p=0.3)   # 全连接/环/星/随机/小世界
+conv = swarm2.consensus_convergence("钻木可以取火", threshold=0.9)
+# 实测（N=8）：小世界 18 轮 < 全连接 26 轮 < 环形 45 轮；
+# N=12 时稀疏拓扑无法收敛（相变），详见 swarm.py consensus_phase_scan
+
+# ===== v4.2 拓扑自适应（共同演化网络） =====
+swarm2.set_topology("ring")
+res = swarm2.coevolve_consensus("钻木可以取火", threshold=0.9, rewire_prob=0.5)
+# 异见边逐轮博弈：1-φ 观点模仿 / φ 断边重连到同道；未持有者求知连边
+# 实测（N=12 环形）：静态 >60 轮不收敛 → 共同演化 4 轮收敛
+# φ 三区：0.2→3 轮（传播主导）/ 0.5→4 轮（平衡）/ 0.8→7 轮（结构 churn）
+
+# ===== v4.3 多模因竞争（文化生态） =====
+import time as _time
+from ai_brain_entity import BrainMemory
+swarm3 = BrainSwarm([f"A{i}" for i in range(12)], seed=1)
+swarm3.set_topology("ring")
+for i, b in enumerate(swarm3.population):   # 前半持钻木、后半持燧石
+    meme = "钻木可以取火" if i < 6 else "燧石可以取火"
+    b.long_memory.append(BrainMemory(content=meme, timestamp=_time.time(),
+                                     weight=1.0, tag="culture"))
+mono = swarm3.competition_dynamics(["钻木可以取火", "燧石可以取火"], rewire_prob=0.2)
+# φ 低 → 立场转化主导 → 垄断：实测「燧石可以取火」17 轮统一全网
+polar = swarm3.competition_dynamics(["钻木可以取火", "燧石可以取火"], rewire_prob=0.85)
+# φ 高 → 阵营隔离主导 → 极化共存：实测 0.67/0.33 两阵营各自封闭
+
+# ===== v4.4 TD(λ) 资格迹：信用分配跨 tick 传播 =====
+lam_brain = AIBrainEntity("λ", seed=1)
+for _ in range(20):                     # Schultz 范式：三线索链 → 奖励
+    for cue in ["铃声", "灯光", "气味"]:
+        lam_brain.sensory_input(cue)
+    r = lam_brain.reward_lambda(1.0)    # RPE 按资格迹反向分配给全部线索
+# 实测：V(气味)=0.99 > V(灯光)=0.71 > V(铃声)=0.51（γλ 时间梯度），
+# 奖励时刻 RPE 从 1.0 衰减到 0.014（多巴胺时序迁移到最早线索）
+
+# ===== v4.5 执行器技能学习：分 verb 价值 + 策略化选择 =====
+skill_brain = AIBrainEntity("S", seed=1)
+skill_brain.skill_epsilon = 0.4       # 低新奇时 ε_eff=0.2，避免锁死次优动作
+for verb, rv in [("respond", 0.8), ("acknowledge", 0.2), ("observe", -0.4)]:
+    skill_brain.register_executor(lambda a, r=rv: {"reward": r}, verb=verb)
+for _ in range(40):
+    skill_brain.act("火焰是危险的", policy="epsilon")   # 探索中学习 Q(verb)
+# 实测：Q 收敛 {respond 0.80, acknowledge 0.19, observe -0.30}；
+out = skill_brain.act("火焰是危险的", policy="greedy")  # 习得价值覆盖动作选择
+# greedy 20/20 选 respond——Q 最高的动作胜出
+
+# ===== v4.6 检索式语言生成：LTM 片段 + 句法框架 =====
+comp_brain = AIBrainEntity("C", seed=1)
+for _ in range(30):
+    comp_brain.sensory_input("火焰是危险的")
+for _ in range(20):
+    comp_brain.sensory_input("钻木可以取火")
+comp_brain.sensory_input("取火的方法")
+c = comp_brain.compose("取火的方法")
+# c = {"utterance", "action", "fragments", "frame", "mood"}
+# 实测：长词经 n-gram 降级检索取出「钻木可以取火」「燧石可以取火」，
+# 编织为并列从句填入句法框架——比 express() 的固定模板更会"引经据典"
+
+# ===== v4.7 情景记忆时间索引：时间推理 =====
+ep_brain = AIBrainEntity("E", seed=1)
+for s in ["起床", "刷牙", "吃早餐", "出门", "刷牙", "上班"]:
+    ep_brain.sensory_input(s)
+r = ep_brain.events_after("刷牙")    # "上次刷牙之后发生了什么"
+# 实测：锚点=最近一次刷牙@tick5，事件=[上班(+1 tick)]
+r2 = ep_brain.events_before("吃早餐")  # [(起床,-2), (刷牙,-1)]
+# 每条情景还带共现上下文：ep_brain.episodes[2]["context"] == ["起床", "刷牙"]
+
+# ===== v4.8 睡眠-清醒节律：离线重放 + 突触稳态缩放 =====
+sleep_brain = AIBrainEntity("Z", seed=1)
+sleep_brain.sensory_input("萤火虫在夜里发光")   # 弱刺激：白天无法固化
+sleep_brain.sensory_input("另一个无关刺激")
+r = sleep_brain.sleep(cycles=3)
+# 实测：重放 2 条 / 固化 2 条（LTM 0→2），压力 0.16→0.02；
+# 深睡 12 周期：突触 768→690，剪除 103 条弱连接、强连接存活（SHY）
+
+# ===== v4.9 好奇驱动探索：新奇度调制注意与 ε =====
+nov_brain = AIBrainEntity("N", seed=1)
+for _ in range(30):
+    nov_brain.sensory_input("火焰是危险的")
+nov_brain.sensory_input("火焰")            # 熟悉：新奇度 0，ε 减半（利用）
+nov_brain.sensory_input("量子纠缠态坍缩")  # 全新：新奇度 0.70，注意当 tick 上升
+# 实测：ε_eff 0.075(熟悉) vs 0.180(全新)；大 |RPE| 后熟悉刺激重获 0.30 新奇度
+print(nov_brain.novelty, nov_brain.effective_epsilon())
+
 # 群体智能：文化传递
 swarm = BrainSwarm(["Alpha", "Beta", "Gamma"], seed=1)
 for _ in range(25):
@@ -103,17 +244,21 @@ ai_brain/
 ├── experiments.py            # 实验 1-8（统一复现，生成 figures/）
 ├── brain_activity_trace.py   # 大脑活动追踪导出（每步膜电位/脉冲/情绪/记忆 → data/）
 ├── thought_chain_scenarios.py  # 脉冲思考链三场景导出（Spike CoT 对照实验 → data/）
-├── export_widget_data.py     # 观测台数据统一入口（依次调用上面两个导出器）
+├── encoder_status.py         # 多模态编码器状态导出（v3.1 自定义模型通路 → data/）
 ├── run_all.py                # 全流程统一入口（测试→演示→实验→观测数据，--quick 快速模式）
 ├── tests/                    # 核心行为测试（纯标准库 unittest）
-│   └── test_ai_brain.py      # 24 项：编码/可塑性/记忆/奖励/DNA/思考链/群体/自定义多模态
+│   └── test_ai_brain.py      # 100 项：编码/可塑性/记忆/奖励/DNA/思考链/群体/多模态/v4.0~v4.9
 ├── docs/
 │   └── paper.md              # 学术论文（架构+实验+分析，含 v3.0 更新章节）
 ├── data/                     # 运行时数据产物
 │   ├── experiment_results.json    # 实验 1-8 数据（统一输出）
 │   ├── brain_activity_trace.json  # 大脑活动追踪（Widget 回放数据，预生成）
 │   ├── thought_chain_scenarios.json  # Spike CoT 三场景（Widget 数据源，预生成）
+│   ├── encoder_status.json        # 多模态编码器状态（Widget 数据源，预生成）
 │   └── brain_dna.json             # 演示生成的 DNA 快照
+├── models/                   # 自定义多模态模型目录（权重已被 .gitignore 忽略）
+│   ├── README.md             # 目录约定与接入方式
+│   └── encoders/my_encoder.py  # 示例自定义编码器（零依赖）
 ├── figures/                  # 实验图表
 │   ├── exp1_hebbian.png      # 突触可塑性开关对照
 │   ├── exp2_memory.png       # 记忆固化与遗忘
@@ -154,7 +299,17 @@ ai_brain/
 
 ## 扩展方向
 
-- 以可学习投影替代线性插值重采样，保留稠密 embedding 的对比度
-- 文化传递中的水平传播 vs 垂直传播动力学、群体共识涌现
-- 奖励预测误差（RPE/TD 误差）替代直接奖励，实现时序差分学习
-- 决策输出接入动作空间 / 语言生成模块
+- ✅ ~~以可学习投影替代线性插值重采样~~（v4.0：随机投影 + Oja 在线 PCA）
+- ✅ ~~水平 vs 垂直传播动力学、群体共识涌现~~（v4.0 落地）
+- ✅ ~~奖励预测误差（RPE/TD 误差）替代直接奖励~~（v4.0：`reward_td()`）
+- ✅ ~~决策输出接入动作空间 / 语言生成模块~~（v4.0：`decide_action()` / `express()`）
+- ✅ ~~动作空间接入真实执行器并回传执行结果作为奖励~~（v4.1：`act()` + 机器人/HTTP API 执行器闭环）
+- ✅ ~~共识涌现的相变条件：种群规模、连接拓扑对收敛速度的影响~~（v4.1：`set_topology()` + `consensus_phase_scan()`）
+- ✅ ~~拓扑自适应：共识压力反作用于社交边的生灭（共同演化网络）~~（v4.2：`rewire_coevolve()` + `coevolve_consensus()`）
+- ✅ ~~多模因竞争：多个 meme 在同一共同演化网络上的竞争/共存动力学~~（v4.3：`compete_coevolve()` + `competition_dynamics()`，φ 低→垄断 / φ 高→极化，临界点 φ∈(0.5, 0.7)）
+- ✅ ~~TD(λ) 资格迹 / 多步回报，让信用分配跨 tick 传播~~（v4.4：`reward_lambda()`，替换迹 γλ 衰减，RPE 反向分配——Schultz 多巴胺时序迁移复现）
+- ✅ ~~执行器技能学习：不同 verb 维护独立价值估计（动作选择策略化）~~（v4.5：`learn_skill()` + `select_verb()`，greedy/ε-greedy/softmax）
+- ✅ ~~语言生成从模板走向检索式组合（LTM 片段 + 句法框架）~~（v4.6：`compose()`，n-gram 降级检索 + 记忆编织 + 句法框架）
+- ✅ ~~情景记忆时间索引：LTM 记录"何时与何事共现"，支持"上次……之后"式时间推理~~（v4.7：`episodes` + `events_after()` / `events_before()`）
+- ✅ ~~睡眠-清醒节律：离线期记忆重放（replay）加速固化、清理低价值突触~~（v4.8：`sleep()`，SHY 等比缩放保留相对差异）
+- ✅ ~~好奇驱动探索：新奇度（RPE 绝对值 / 记忆未命中率）反向调制 ε 与注意~~（v4.9：`_assess_novelty()` + `effective_epsilon()`）

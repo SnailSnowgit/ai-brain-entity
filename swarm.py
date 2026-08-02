@@ -158,6 +158,49 @@ def generation_chain(swarm: BrainSwarm, memes: List[str],
     return report
 
 
+# ===================== 共识涌现相变扫描（v4.1） =====================
+
+def consensus_phase_scan(sizes=(3, 5, 8, 12),
+                         topologies=("fully_connected", "ring",
+                                     "small_world", "random"),
+                         meme: str = "钻木可以取火",
+                         teach_times: int = 25,
+                         max_rounds: int = 60,
+                         threshold: float = 0.9,
+                         p: float = 0.3,
+                         seed: int = 1) -> List[Dict]:
+    """共识涌现的相变条件扫描：种群规模 × 连接拓扑 → 收敛速度。
+
+    对每个 (规模, 拓扑) 组合：构建种群 → 0 号个体学会模因 → 设定拓扑 →
+    测量模因覆盖率达到 threshold 所需的水平传播轮数（consensus_convergence）。
+
+    返回每格 {"size", "topology", "rounds", "converged", "mean_degree",
+             "coverage"} 的列表，可直接制表/绘图。
+    """
+    grid = []
+    for size in sizes:
+        names = [f"N{i}" for i in range(size)]
+        for topo in topologies:
+            swarm = BrainSwarm(names, seed=seed)
+            for _ in range(teach_times):
+                swarm.population[0].sensory_input(meme)
+            adj = swarm.set_topology(topo, p=p, seed=seed)
+            mean_degree = (sum(len(v) for v in adj.values()) / size
+                           if size else 0.0)
+            conv = swarm.consensus_convergence(
+                meme, max_rounds=max_rounds, threshold=threshold,
+                direction="horizontal")
+            grid.append({
+                "size": size,
+                "topology": topo,
+                "rounds": conv["rounds"],
+                "converged": conv["converged"],
+                "mean_degree": round(mean_degree, 2),
+                "coverage": conv["coverage"],
+            })
+    return grid
+
+
 # ===================== 演示 =====================
 
 if __name__ == "__main__":
@@ -198,3 +241,71 @@ if __name__ == "__main__":
                                seed=1, rehearse_times=rehearse)
         survived = [r["survived"] for r in rep]
         print(f"  {label}: 各代存活={survived}")
+
+    print("\n--- v4.1 共识涌现相变扫描：规模 × 拓扑 → 收敛轮数 ---")
+    grid = consensus_phase_scan(sizes=(4, 8, 12), seed=1)
+    header = f"  {'拓扑':<18}{'度@N=4':>8}" + "".join(
+        f"{s:>8}" for s in (4, 8, 12))
+    print(header)
+    for topo in ("fully_connected", "ring", "small_world", "random"):
+        row = [g for g in grid if g["topology"] == topo]
+        cells = []
+        for g in row:
+            cells.append(f"{g['rounds'] if g['converged'] else '>60':>8}")
+        print(f"  {topo:<18}{row[0]['mean_degree']:>8}" + "".join(cells))
+
+    print("\n--- v4.2 拓扑自适应：共同演化 vs 静态拓扑（N=12 环形）---")
+    for label, adaptive in (("静态环形", False), ("共同演化环形", True)):
+        s = BrainSwarm([f"C{i}" for i in range(12)], seed=1)
+        for _ in range(25):
+            s.population[0].sensory_input("钻木可以取火")
+        s.set_topology("ring")
+        if adaptive:
+            res = s.coevolve_consensus("钻木可以取火", max_rounds=60,
+                                       threshold=0.9, rewire_prob=0.5)
+            r = res["rounds"] if res["converged"] else ">60"
+            print(f"  {label}: 收敛轮数={r}  "
+                  f"边生灭 新生{res['born_total']}/重连{res['rewired_total']}  "
+                  f"末态平均度={res['final_degree']}（初始 2.0）")
+        else:
+            res = s.consensus_convergence("钻木可以取火", max_rounds=60,
+                                          threshold=0.9)
+            r = res["rounds"] if res["converged"] else ">60"
+            print(f"  {label}: 收敛轮数={r}  "
+                  f"覆盖率 {res['coverage'][:3]}...{res['coverage'][-1]}")
+
+    print("\n--- v4.2 重连概率 φ 的三区动力学（N=12 共同演化环形）---")
+    for phi, note in ((0.2, "传播主导：结构平静，共识最快"),
+                      (0.5, "平衡区：传播与结构适应协同"),
+                      (0.8, "结构主导：边 churn 剧烈，共识被拖慢")):
+        s = BrainSwarm([f"C{i}" for i in range(12)], seed=1)
+        for _ in range(25):
+            s.population[0].sensory_input("钻木可以取火")
+        s.set_topology("ring")
+        res = s.coevolve_consensus("钻木可以取火", max_rounds=60,
+                                   threshold=0.9, rewire_prob=phi)
+        r = res["rounds"] if res["converged"] else ">60"
+        print(f"  φ={phi}: 收敛={r} 轮  "
+              f"模仿{res['copied_total']} 重连{res['rewired_total']} "
+              f"新生{res['born_total']}  | {note}")
+
+    print("\n--- v4.3 多模因竞争：垄断 vs 极化（N=12 环形，两阵营各半）---")
+    rivals = ["钻木可以取火", "燧石可以取火"]
+    for phi in (0.2, 0.85):
+        s = BrainSwarm([f"M{i}" for i in range(12)], seed=1)
+        for k in range(12):  # 前半持钻木，后半持燧石
+            meme = rivals[0] if k < 6 else rivals[1]
+            s.population[k].long_memory.append(BrainMemory(
+                content=meme, timestamp=time.time(), weight=1.0,
+                tag="culture"))
+        s.set_topology("ring")
+        res = s.competition_dynamics(rivals, max_rounds=60,
+                                     dominance=0.9, rewire_prob=phi)
+        if res["converged"]:
+            outcome = f"垄断：「{res['winner']}」{res['rounds']} 轮统一全网"
+        else:
+            f_ = res["final"]
+            outcome = (f"极化共存：两阵营 {f_[rivals[0]]:.2f}/"
+                       f"{f_[rivals[1]]:.2f} 各自封闭")
+        print(f"  φ={phi}: {outcome}  "
+              f"(转化{res['converted_total']} 重连{res['rewired_total']})")

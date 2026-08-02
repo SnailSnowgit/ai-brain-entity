@@ -12,7 +12,8 @@
   [2] ai_brain_entity.py        核心层内置演示（冒烟）
   [3] swarm.py                  群体层演示（依赖核心层）
   [4] experiments.py            实验层：实验 1-8 → figures/ + experiment_results.json
-  [5] export_widget_data.py     观测层：刷新观测台两个 Widget 的数据
+  [5] 观测层：依次运行 brain_activity_trace.py / thought_chain_scenarios.py /
+      encoder_status.py，刷新观测台三个 Widget 的数据
 任一步失败即中断并报告。
 """
 import subprocess
@@ -42,7 +43,7 @@ def main() -> None:
     skip_exp = "--skip-experiments" in sys.argv or quick
 
     total = 0.0
-    total += step("1/5 单元测试（核心层回归，16 项）",
+    total += step("1/5 单元测试（核心层回归，100 项）",
                   [PY, "-m", "unittest", "discover", "tests"])
     if not skip_demo:
         total += step("2/5 核心层内置演示（ai_brain_entity.py）",
@@ -55,8 +56,13 @@ def main() -> None:
                       [PY, "experiments.py"])
     else:
         print("\n[跳过] 实验复现（--skip-experiments/--quick）")
-    total += step("5/5 观测台数据刷新（export_widget_data.py）",
-                  [PY, "export_widget_data.py"])
+    total += step("5/5 观测台数据刷新（三个导出器）",
+                  [PY, "-c",
+                   "import brain_activity_trace, thought_chain_scenarios, "
+                   "encoder_status; "
+                   "brain_activity_trace.main(); "
+                   "thought_chain_scenarios.main(); "
+                   "encoder_status.main()"])
 
     print(f"\n全部完成，总耗时 {total:.1f}s。")
     print("产物：data/experiment_results.json、figures/exp*.png、"
