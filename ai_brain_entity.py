@@ -1718,6 +1718,8 @@ class AIBrainEntity:
                    （第 0 步为刺激响应步，其余为自由回响步）
           chain  — 人类可读的思考链描述（逐步因果）
           output — 决策中枢的行为输出（同 sensory_input 返回值）
+          thoughts — 本次感知后的思考空间快照（v5.0）：
+                     [{content, source, activation, birth_tick}]
         """
         self._step_trace = []
         output = self.sensory_input(data)
@@ -1739,8 +1741,13 @@ class AIBrainEntity:
                     f"{i + 2}. 回响+{i}：感官 {len(s)} / 联想 {len(a)} / "
                     f"决策 {len(d)}{silent}")
         chain.append(f"{len(steps) + 2}. 决策输出：{output}")
+        # v5.0：附带思考空间快照——这次感知后大脑"正在想什么"
+        thoughts = [{"content": t.content, "source": t.source,
+                     "activation": round(t.activation, 3),
+                     "birth_tick": t.birth_tick}
+                    for t in self.thought_space]
         return {"input": data, "steps": steps, "chain": chain,
-                "output": output}
+                "output": output, "thoughts": thoughts}
 
     # ------------------ 历史记录与统计 ------------------
 
@@ -1936,6 +1943,10 @@ class AIBrainEntity:
     # ------------------ 状态报告 ------------------
 
     def status(self) -> str:
+        metacog = (f"{len(self.metacog_log)} 条日志"
+                   + (f"（最近: {self.metacog_log[-1]['text']}）"
+                      if self.metacog_log else "（暂无内省记录）"))
+        top = self.top_thought()
         return (f"=== {self.name} 状态 ===\n"
                 f"  tick={self.tick}  注意力={self.attention_factor:.2f}  "
                 f"多巴胺={self.dopamine:.2f}\n"
@@ -1944,7 +1955,8 @@ class AIBrainEntity:
                 f"STM={len(self.short_memory)}/{self.max_stm} "
                 f"LTM={len(self.long_memory)}/{self.max_ltm}\n"
                 f"  思考空间: {len(self.thought_space)}/{self.thought_capacity} 个念头"
-                f"（焦点: {self.top_thought().content if self.top_thought() else '（空）'}）\n"
+                f"（焦点: {top.content if top else '（空）'}）\n"
+                f"  元认知: {metacog}\n"
                 f"  突触: 前馈{len(self.synapse)}条(强连接{self.strong_synapse_count()}), "
                 f"循环{len(self.recurrent_synapse)}条, "
                 f"前馈平均强度={self.synapse_mean():.3f}")

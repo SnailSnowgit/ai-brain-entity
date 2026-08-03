@@ -1290,6 +1290,27 @@ class TestThoughtSystem(unittest.TestCase):
         text = self.brain.status()
         self.assertIn("思考空间", text)
 
+    def test_status_reports_metacog(self):
+        """status() 摘要包含元认知状态（无内省/有内省两种）"""
+        self.assertIn("元认知: 0 条日志（暂无内省记录）", self.brain.status())
+        self.brain.sensory_input("火焰是危险的")
+        self.brain.introspect()
+        text = self.brain.status()
+        self.assertIn("元认知: 1 条日志", text)
+        self.assertIn("最近:", text)
+
+    def test_thought_chain_includes_thoughts(self):
+        """thought_chain() 返回值新增 thoughts 字段（思考空间快照）"""
+        tc = self.brain.thought_chain("火焰是危险的")
+        self.assertIn("thoughts", tc)
+        self.assertIsInstance(tc["thoughts"], list)
+        self.assertTrue(tc["thoughts"])
+        first = tc["thoughts"][0]
+        for key in ("content", "source", "activation", "birth_tick"):
+            self.assertIn(key, first)
+        self.assertEqual(first["content"], "火焰是危险的")
+        self.assertEqual(first["source"], "external")
+
 
 if __name__ == "__main__":
     unittest.main()

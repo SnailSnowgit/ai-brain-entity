@@ -77,7 +77,7 @@ python swarm.py              # 群体文化传递演示（定向传递+变异+�
 python experiments.py        # 复现实验 1-8（统一入口，生成 figures/ 与 data/ 结果）
 python encoder_status.py        # 观测台编码器面板数据（另两个导出器：brain_activity_trace / thought_chain_scenarios）
 python run_all.py               # 一键全流程：测试 → 演示 → 实验 → 观测数据（--quick 快速模式）
-python -m unittest discover tests  # 运行核心行为测试（114 项）
+python -m unittest discover tests  # 运行核心行为测试（116 项）
 ```
 
 ```python
@@ -264,6 +264,7 @@ swarm.culture_round(rounds=4, top_k=2, mode="dna")   # DNA 记忆传递
 swarm.broadcast("公共事件")                           # 全种群广播
 
 # 脉冲思考链：可解释地展开一次"感知→传导→回响→决策"的因果链
+# （v5.0 起返回值附带 thoughts 字段：本次感知后的思考空间快照）
 for line in brain.thought_chain("火焰是危险的")["chain"]:
     print(line)
 
@@ -283,7 +284,7 @@ clone = AIBrainEntity.load_dna("brain_dna.json", new_name="Brain-02")
 | `episodic_trace(keyword)` | 情景轨迹：按时间顺序返回所有含 keyword 的情景条目 |
 | `decay_memory(factor)` | 记忆自然衰减（模拟时间流逝/睡眠），低于阈值遗忘 |
 | `synapse_mean()` / `strong_synapse_count(threshold)` | 突触平均强度 / 强突触计数（可塑性度量） |
-| `status()` | 一行状态摘要（tick/情绪/记忆/突触/多巴胺/思考空间） |
+| `status()` | 一行状态摘要（tick/情绪/记忆/突触/多巴胺/思考空间/元认知日志） |
 | `think(content, ticks)` | v5.0 主动思考：念头回注网络诱发联想，高激活念头固化进 STM（tag=thought） |
 | `introspect()` | v5.0 思考感官：感知自身情绪/脉冲/记忆/意识焦点，回注内省言语并记 `metacog_log` |
 | `top_thought()` | v5.0 当前意识焦点（激活度最高的念头） |
@@ -322,7 +323,7 @@ ai_brain/
 ├── encoder_status.py         # 多模态编码器状态导出（v3.1 自定义模型通路 → data/）
 ├── run_all.py                # 全流程统一入口（测试→演示→实验→观测数据，--quick 快速模式）
 ├── tests/                    # 核心行为测试（纯标准库 unittest）
-│   └── test_ai_brain.py      # 114 项：编码/可塑性/记忆/奖励/DNA/思考链/群体/多模态/v4.0~v5.0
+│   └── test_ai_brain.py      # 116 项：编码/可塑性/记忆/奖励/DNA/思考链/群体/多模态/v4.0~v5.0
 ├── docs/
 │   └── paper.md              # 学术论文（架构+实验+分析，含 v3.0 更新章节）
 ├── data/                     # 运行时数据产物
