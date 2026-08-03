@@ -254,6 +254,41 @@ brain.save_dna("brain_dna.json")
 clone = AIBrainEntity.load_dna("brain_dna.json", new_name="Brain-02")
 ```
 
+## API 速查（全部公开功能）
+
+**实体观测与工具**（`ai_brain_entity.py`，快速开始已列的方法不再重复）
+
+| 方法 | 功能 |
+|---|---|
+| `spike_counts()` | 当前 tick 三层（感官/联想/决策）各自的脉冲数 |
+| `free_run(ticks)` | 无外部输入自由演化，观察刺激后回响衰减或静息态自发活动 |
+| `episodic_trace(keyword)` | 情景轨迹：按时间顺序返回所有含 keyword 的情景条目 |
+| `decay_memory(factor)` | 记忆自然衰减（模拟时间流逝/睡眠），低于阈值遗忘 |
+| `synapse_mean()` / `strong_synapse_count(threshold)` | 突触平均强度 / 强突触计数（可塑性度量） |
+| `status()` | 一行状态摘要（tick/情绪/记忆/突触/多巴胺） |
+| `dump_dna()` / `from_dna(dna)` | DNA 字典级导出与重建（`save_dna`/`load_dna` 的内存版） |
+
+**群体文化工具**（`swarm.py` 实验层）
+
+| 函数 | 功能 |
+|---|---|
+| `transmit(donor, receiver, top_k, fidelity)` | 定向文化传递：donor 经 DNA 快照把 top_k 条最强长期记忆教给 receiver |
+| `cultural_similarity(a, b)` | 两实体长期记忆的文化重合度（Jaccard） |
+| `meme_trace(brains, keyword)` | 追踪某文化主题在群体中的分布（持有者/权重/时间） |
+| `generation_chain(swarm, memes, ...)` | 文化世代传递实验：第 0 代学会全部 memes 后沿种群逐代传递并追踪保真度 |
+| `consensus_phase_scan(sizes, topologies, ...)` | 共识相变扫描：种群规模 × 连接拓扑 → 收敛速度矩阵 |
+
+**脚本入口**（均直接 `python <脚本>` 运行）
+
+| 脚本 | 功能 |
+|---|---|
+| `run_all.py` | 全流程统一入口：测试 → 演示 → 实验 → 观测数据导出；`--quick` 快速模式 |
+| `experiments.py` | 实验 1-8 统一复现（可塑性/记忆/情绪/光栅/STDP/多巴胺/文化/多模态），生成 `figures/exp*.png` 与 `data/experiment_results.json` |
+| `brain_activity_trace.py` | 大脑活动追踪导出：每步膜电位/脉冲/情绪/记忆 → `data/brain_activity_trace.json`（Widget 回放数据源） |
+| `thought_chain_scenarios.py` | 脉冲思考链三场景导出（Spike CoT 对照实验）→ `data/thought_chain_scenarios.json` |
+| `encoder_status.py` | 多模态编码器状态导出（v3.1 自定义模型通路）→ `data/encoder_status.json` |
+| `models/encoders/my_encoder.py` | 示例自定义编码器：直方图式 32 维图像编码，零依赖，演示注册通路 |
+
 ## 项目结构
 
 ```
