@@ -1,6 +1,6 @@
 # -*- coding: utf-8 -*-
 """
-AI大脑实体（类脑架构 Python 完整可运行代码）v4.9
+AI大脑实体（类脑架构 Python 完整可运行代码）v5.0
 ====================================================
 定位：独立大脑实体，包含感知缓冲区、脉冲神经元集群、短期记忆(STM)、
       长期记忆(LTM)、情绪核、注意力机制、决策中枢、遗忘机制。
@@ -106,6 +106,17 @@ v4.9 新增：
     effective_epsilon() 按 ε×(0.5+novelty) 调制探索率：完全新奇 1.5ε
     探索，完全熟悉 0.5ε 利用。实测：熟悉刺激新奇度 0 / ε 减半；
     全新刺激 0.70 / ε 提升；大意外后熟悉刺激重获 0.30 新奇度
+
+v5.0 新增（思考体系）：
+  1. 思考空间（全局工作区）：ThoughtItem 念头含来源/激活度/出生 tick，
+     容量 7±2（米勒定律），激活度逐 tick 衰减、低于 0.05 退出意识；
+     外部感知、联想回忆、主动思考、内省都向思考空间注入念头
+  2. 思考记忆：think() 把念头重新编码为电流注入网络（"自言自语"闭环），
+     诱发联想；高激活念头（≥0.35）固化进 STM（tag="thought"）——
+     想多了就记住了
+  3. 思考感官（内感觉 interoception）：introspect() 感知自身脑活动
+     （主导情绪/三层脉冲/记忆占用/思考空间顶部念头），生成内省言语
+     并回注网络，同时记入 metacog_log 元认知日志
 
 类脑层级：
   1. 感官层神经元：接收外部原始信号（文字 / 任意 embedding 向量）
@@ -347,7 +358,20 @@ class BrainMemory:
     content: str
     timestamp: float
     weight: float    # 记忆权重（强度）
-    tag: str         # 记忆标签：sensory / emotion / event / culture
+    tag: str         # 记忆标签：sensory / emotion / event / culture / thought
+
+
+@dataclass
+class ThoughtItem:
+    """思考空间中的一个念头（全局工作区条目，v5.0）。
+
+    思考空间是"心智舞台"——当前被意识到的内容都在这里。
+    每个念头有激活度，随时间自然衰减，被注意/联想时重新激活。
+    """
+    content: str           # 念头内容
+    source: str = "internal"  # 来源: external / memory / internal / metacog
+    activation: float = 1.0   # 激活度 [0,1]，每 tick 衰减
+    birth_tick: int = 0
 
 
 # ===================== 可学习投影（v4.0） =====================
@@ -595,6 +619,15 @@ class AIBrainEntity:
 
         # v4.7 情景记忆时间索引：每次感知记一条情景（何时 + 与何事共现）
         self.episodes: List[Dict] = []   # {tick, content, context:[共现内容]}
+
+        # v5.0 思考空间（全局工作区）：当前被意识到的念头
+        # 容量遵循米勒定律 7±2；激活度逐 tick 衰减，低于 0.05 退出意识
+        self.thought_space: List[ThoughtItem] = []
+        self.thought_capacity = 9       # 米勒定律上限
+        self.thought_decay = 0.9        # 每 tick 激活度衰减系数
+        self.thought_salience = 0.35    # 念头固化进 STM 的激活度阈值
+        # v5.0 元认知日志（思考感官 introspect 的记录）
+        self.metacog_log: List[Dict] = []
 
         # v4.8 睡眠-清醒节律：离线重放固化 + 突触稳态缩放（SHY）
         self.sleep_replay_gain = 0.15       # 每次重放的 STM 权重增益
@@ -923,6 +956,36 @@ class AIBrainEntity:
         self.use_projection = on
         return self.use_projection
 
+    # ------------------ 思考空间（v5.0 全局工作区） ------------------
+
+    def _push_thought(self, content: str, source: str = "internal",
+                      activation: float = 1.0):
+        """念头进入思考空间。同内容念头重新激活而非重复入栈；
+        超出容量时挤出激活度最低的念头。"""
+        for t in self.thought_space:
+            if t.content == content:
+                t.activation = 1.0
+                t.source = source
+                return
+        self.thought_space.append(
+            ThoughtItem(content, source, self._clip(activation), self.tick))
+        if len(self.thought_space) > self.thought_capacity:
+            weakest = min(self.thought_space, key=lambda t: t.activation)
+            self.thought_space.remove(weakest)
+
+    def _decay_thoughts(self):
+        """念头激活度逐 tick 衰减，低于 0.05 退出意识"""
+        for t in self.thought_space:
+            t.activation *= self.thought_decay
+        self.thought_space[:] = [
+            t for t in self.thought_space if t.activation >= 0.05]
+
+    def top_thought(self) -> Optional[ThoughtItem]:
+        """当前激活度最高的念头（意识焦点）；思考空间为空返回 None"""
+        if not self.thought_space:
+            return None
+        return max(self.thought_space, key=lambda t: t.activation)
+
     def _perceive(self, content: str, input_currents: List[float], tag: str) -> str:
         """统一的感知-认知流水线"""
         self.tick += 1
@@ -935,6 +998,9 @@ class AIBrainEntity:
             "tick": self.tick, "content": content,
             "context": [c for c in self.sensory_buffer if c != content]})
         self._assess_novelty(content)   # v4.9：新奇度 → 当 tick 注意捕获
+        # v5.0：外部感知进入思考空间（被意识到），旧念头随时间衰减
+        self._push_thought(content, source="external")
+        self._decay_thoughts()
 
         # 网络动力学：外部刺激经注意力调制注入，随后自由回响 settle_ticks
         external = [c * self.attention_factor for c in input_currents]
@@ -1229,6 +1295,9 @@ class AIBrainEntity:
         unique.sort(key=lambda m: m.weight, reverse=True)
         for m in unique[:top_k]:
             m.weight = self._clip(m.weight + 0.05)  # 回忆强化
+        # v5.0：被回忆起的记忆进入思考空间（进入意识）
+        for m in unique[:top_k]:
+            self._push_thought(m.content, source="memory", activation=0.8)
         return unique[:top_k]
 
     # ------------------ 情景记忆时间索引（v4.7） ------------------
@@ -1259,6 +1328,88 @@ class AIBrainEntity:
     def events_before(self, keyword: str) -> Dict:
         """时间推理："上次 keyword 之前经历过什么"（delta 为负）"""
         return self._episodes_relative(keyword, "before")
+
+    # ------------------ 思考体系（v5.0） ------------------
+
+    def think(self, content: Optional[str] = None, ticks: int = 1) -> Dict:
+        """主动思考：把念头重新编码为电流注入网络，形成"自言自语"闭环。
+
+        content 缺省时取思考空间中激活度最高的念头继续想（意识焦点）。
+        思考活动诱发联想（recall），联想起的记忆也进入思考空间；
+        结束时高激活念头（≥ thought_salience）固化进 STM（tag="thought"）
+        ——思考记忆：想多了就记住了。
+        """
+        if content is None:
+            top = self.top_thought()
+            if top is None:
+                return {"thought": None, "spikes": self.spike_counts(),
+                        "recalled": [], "consolidated": [],
+                        "thought_space": []}
+            content = top.content
+        self._push_thought(content, source="internal")
+        self.tick += 1
+        # 内部思考强度低于外部感知（0.6 倍），网络活动驱动联想
+        currents = [c * 0.6 for c in self._str_to_current(content)]
+        self._network_step(currents)
+        for _ in range(max(0, ticks - 1)):
+            self._network_step()
+
+        # 思考诱发联想：回忆起的记忆进入意识
+        recalled: List[BrainMemory] = []
+        for token in content.replace("，", " ").replace("。", " ").split():
+            if len(token) >= 2:
+                recalled.extend(self.recall(token, top_k=1))
+        self._decay_thoughts()
+
+        # 思考记忆固化：高激活念头写入 STM
+        consolidated = []
+        for t in self.thought_space:
+            if t.activation >= self.thought_salience:
+                self._write_stm(t.content, tag="thought")
+                consolidated.append(t.content)
+
+        if self.record_history:
+            self._record()
+        return {
+            "thought": content,
+            "spikes": self.spike_counts(),
+            "recalled": [m.content for m in recalled[:2]],
+            "consolidated": consolidated,
+            "thought_space": [(t.content, t.source, round(t.activation, 2))
+                              for t in self.thought_space],
+        }
+
+    def introspect(self) -> Dict:
+        """思考感官（内感觉 interoception）：感知自己的脑活动。
+
+        读取主导情绪、三层脉冲数、记忆占用、思考空间焦点，生成内省
+        言语并把它作为内部刺激回注网络（自我感知回路），同时记入
+        metacog_log 元认知日志。外部感官看世界，思考感官看自己。
+        """
+        s, a, d = self.spike_counts()
+        mood = max(self.emotion, key=lambda k: self.emotion[k])
+        mood_cn = {"calm": "平静", "curiosity": "好奇",
+                   "stress": "紧张", "pleasure": "愉悦"}.get(mood, mood)
+        top = self.top_thought()
+        top_content = top.content if top else "（空）"
+        text = (f"我感到{mood_cn}，正在想「{top_content}」，"
+                f"脉冲活动{s}/{a}/{d}，"
+                f"记忆{len(self.short_memory)}/{len(self.long_memory)}")
+
+        # 内省言语回注网络（强度 0.5 倍），并作为元认知念头入思考空间
+        self.tick += 1
+        self._network_step([c * 0.5 for c in self._str_to_current(text)])
+        self._push_thought(text, source="metacog")
+
+        entry = {"tick": self.tick, "mood": mood, "top_thought": top_content,
+                 "spike_counts": [s, a, d],
+                 "stm": len(self.short_memory),
+                 "ltm": len(self.long_memory),
+                 "text": text}
+        self.metacog_log.append(entry)
+        if self.record_history:
+            self._record()
+        return entry
 
     # ------------------ 决策中枢 ------------------
 
@@ -1640,6 +1791,9 @@ class AIBrainEntity:
                 "habituation_rate": self.habituation_rate,
             },
             "exposure_count": dict(self.exposure_count),
+            # v5.0 思考体系：念头与元认知日志（元认知只保留最近 50 条）
+            "thought_space": [asdict(t) for t in self.thought_space],
+            "metacog_log": list(self.metacog_log[-50:]),
         }
 
     @classmethod
@@ -1751,6 +1905,23 @@ class AIBrainEntity:
                 if isinstance(k, str)
                 and isinstance(v, (int, float)) and v >= 0
             }
+        # v5.0 思考空间（兼容旧版无此字段的 DNA）
+        ts = dna.get("thought_space", [])
+        if isinstance(ts, list):
+            for t in ts:
+                if not isinstance(t, dict):
+                    continue
+                try:
+                    item = ThoughtItem(**t)
+                    item.activation = max(0.0, min(1.0, float(item.activation)))
+                    brain.thought_space.append(item)
+                except (TypeError, ValueError):
+                    continue
+            brain.thought_space = brain.thought_space[-brain.thought_capacity:]
+        # v5.0 元认知日志
+        mc = dna.get("metacog_log", [])
+        if isinstance(mc, list):
+            brain.metacog_log = [e for e in mc if isinstance(e, dict)]
         return brain
 
     def save_dna(self, path: str):
@@ -1772,6 +1943,8 @@ class AIBrainEntity:
                 f"  记忆: 感官缓存={len(self.sensory_buffer)} "
                 f"STM={len(self.short_memory)}/{self.max_stm} "
                 f"LTM={len(self.long_memory)}/{self.max_ltm}\n"
+                f"  思考空间: {len(self.thought_space)}/{self.thought_capacity} 个念头"
+                f"（焦点: {self.top_thought().content if self.top_thought() else '（空）'}）\n"
                 f"  突触: 前馈{len(self.synapse)}条(强连接{self.strong_synapse_count()}), "
                 f"循环{len(self.recurrent_synapse)}条, "
                 f"前馈平均强度={self.synapse_mean():.3f}")

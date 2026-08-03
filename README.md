@@ -12,6 +12,8 @@ v4.3 多模因竞争（垄断 vs 极化）；v4.4 TD(λ) 资格迹；
 v4.5 执行器技能学习；v4.6 检索式语言生成；
 v4.7 情景记忆时间索引；v4.8 睡眠-清醒节律（SHY）；
 v4.9 好奇驱动探索——感知、学习、记忆、行动、社会、节律的全栈类脑仿真。
+v5.0 思考体系：思考空间（全局工作区）、思考记忆（think 固化）、
+思考感官（introspect 内感觉与元认知日志）。
 
 ## 它是什么
 
@@ -57,6 +59,7 @@ v4.9 好奇驱动探索——感知、学习、记忆、行动、社会、节律
 | **情景记忆** | 海马时间细胞 | `episodes` + `events_after()`/`events_before()`：何时发生、与何事共现，"上次……之后"式时间推理 |
 | **睡眠节律** | 记忆重放+SHY | `sleep()`：离线重放固化弱记忆，突触等比缩放剪除弱连接（保留相对差异），压力恢复 |
 | **好奇驱动** | 新皮层-边缘系统 | `_assess_novelty()`：未命中率+|RPE| 双通路评估新奇度，当 tick 注意捕获；`effective_epsilon()` 新奇→多探索/熟悉→多利用；含习惯化（反复暴露新奇度衰减）与寻求刺激人格差异（SSS） |
+| **思考体系** | 全局工作区+内感觉 | `thought_space`：念头激活度衰减/容量 7±2；`think()` 念头回注网络、高激活固化进 STM；`introspect()` 感知自身脑活动并记元认知日志 |
 
 ## 依赖说明
 
@@ -74,7 +77,7 @@ python swarm.py              # 群体文化传递演示（定向传递+变异+�
 python experiments.py        # 复现实验 1-8（统一入口，生成 figures/ 与 data/ 结果）
 python encoder_status.py        # 观测台编码器面板数据（另两个导出器：brain_activity_trace / thought_chain_scenarios）
 python run_all.py               # 一键全流程：测试 → 演示 → 实验 → 观测数据（--quick 快速模式）
-python -m unittest discover tests  # 运行核心行为测试（100 项）
+python -m unittest discover tests  # 运行核心行为测试（114 项）
 ```
 
 ```python
@@ -238,6 +241,21 @@ for i in range(5):
     hab_brain.sensory_input("反复出现的广告")
     # novelty 逐次降低：0.70 → 0.47 → 0.35 → 0.28 → 0.23
 
+# ===== v5.0 思考体系：思考空间 / 思考记忆 / 思考感官 =====
+# 思考空间（全局工作区）：感知与回忆自动进入意识，容量 7±2，激活度逐 tick 衰减
+brain.sensory_input("火焰是危险的")
+brain.thought_space[0]   # ThoughtItem(content="火焰是危险的", source="external", ...)
+
+# 思考记忆：think() 把念头回注网络（"自言自语"），高激活念头固化进 STM
+out = brain.think("火焰")          # 想多了就记住了（tag="thought"）
+out = brain.think()                # 缺省思考意识焦点（激活度最高的念头）
+
+# 思考感官（内感觉）：introspect() 感知自身脑活动并记入元认知日志
+entry = brain.introspect()
+# entry = {"mood", "top_thought", "spike_counts", "text", ...}
+# entry["text"] ≈ "我感到好奇，正在想「火焰是危险的」，脉冲活动3/7/1，记忆5/12"
+print(brain.status())   # 状态摘要新增"思考空间"行
+
 # 群体智能：文化传递
 swarm = BrainSwarm(["Alpha", "Beta", "Gamma"], seed=1)
 for _ in range(25):
@@ -265,7 +283,10 @@ clone = AIBrainEntity.load_dna("brain_dna.json", new_name="Brain-02")
 | `episodic_trace(keyword)` | 情景轨迹：按时间顺序返回所有含 keyword 的情景条目 |
 | `decay_memory(factor)` | 记忆自然衰减（模拟时间流逝/睡眠），低于阈值遗忘 |
 | `synapse_mean()` / `strong_synapse_count(threshold)` | 突触平均强度 / 强突触计数（可塑性度量） |
-| `status()` | 一行状态摘要（tick/情绪/记忆/突触/多巴胺） |
+| `status()` | 一行状态摘要（tick/情绪/记忆/突触/多巴胺/思考空间） |
+| `think(content, ticks)` | v5.0 主动思考：念头回注网络诱发联想，高激活念头固化进 STM（tag=thought） |
+| `introspect()` | v5.0 思考感官：感知自身情绪/脉冲/记忆/意识焦点，回注内省言语并记 `metacog_log` |
+| `top_thought()` | v5.0 当前意识焦点（激活度最高的念头） |
 | `dump_dna()` / `from_dna(dna)` | DNA 字典级导出与重建（`save_dna`/`load_dna` 的内存版） |
 
 **群体文化工具**（`swarm.py` 实验层）
@@ -301,7 +322,7 @@ ai_brain/
 ├── encoder_status.py         # 多模态编码器状态导出（v3.1 自定义模型通路 → data/）
 ├── run_all.py                # 全流程统一入口（测试→演示→实验→观测数据，--quick 快速模式）
 ├── tests/                    # 核心行为测试（纯标准库 unittest）
-│   └── test_ai_brain.py      # 100 项：编码/可塑性/记忆/奖励/DNA/思考链/群体/多模态/v4.0~v4.9
+│   └── test_ai_brain.py      # 114 项：编码/可塑性/记忆/奖励/DNA/思考链/群体/多模态/v4.0~v5.0
 ├── docs/
 │   └── paper.md              # 学术论文（架构+实验+分析，含 v3.0 更新章节）
 ├── data/                     # 运行时数据产物

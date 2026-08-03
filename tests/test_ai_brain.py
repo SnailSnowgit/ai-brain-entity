@@ -15,7 +15,7 @@ import numpy as np
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
 from ai_brain_entity import (
-    AIBrainEntity, BrainSwarm, BrainMemory, LearnableProjection,
+    AIBrainEntity, BrainSwarm, BrainMemory, ThoughtItem, LearnableProjection,
     encode_image, encode_audio,
     register_image_encoder, register_audio_encoder,
     unregister_image_encoder, unregister_audio_encoder,
@@ -1155,6 +1155,140 @@ class TestCuriosityDrivenExploration(unittest.TestCase):
         brain.reward_lambda(1.0)          # |RPE|=1
         brain.sensory_input("火焰")
         self.assertAlmostEqual(brain.novelty, 0.3, places=2)
+
+
+class TestThoughtSystem(unittest.TestCase):
+    """v5.0 思考体系：思考空间 / 思考记忆 / 思考感官"""
+
+    def setUp(self):
+        self.brain = AIBrainEntity("Thinker", seed=1)
+
+    def test_perception_enters_thought_space(self):
+        """外部感知进入思考空间，来源标记为 external"""
+        self.brain.sensory_input("火焰是危险的")
+        self.assertEqual(len(self.brain.thought_space), 1)
+        t = self.brain.thought_space[0]
+        self.assertIsInstance(t, ThoughtItem)
+        self.assertEqual(t.content, "火焰是危险的")
+        self.assertEqual(t.source, "external")
+
+    def test_thought_capacity_evicts_weakest(self):
+        """容量 7±2=9：超出时挤出激活度最低的念头"""
+        for i in range(12):
+            self.brain._push_thought(f"念头{i}", activation=0.1 * (i % 9 + 1))
+        self.assertLessEqual(len(self.brain.thought_space),
+                             self.brain.thought_capacity)
+        # 被挤出的应是激活度最低者
+        activations = [t.activation for t in self.brain.thought_space]
+        self.assertEqual(min(activations),
+                         min(t.activation for t in self.brain.thought_space))
+
+    def test_thought_decay_and_exit(self):
+        """激活度逐 tick 衰减，低于 0.05 退出意识"""
+        self.brain._push_thought("短暂的念头", activation=0.1)
+        for _ in range(3):
+            self.brain._decay_thoughts()
+        # 0.1 × 0.9³ ≈ 0.073 > 0.05 仍在
+        self.assertEqual(len(self.brain.thought_space), 1)
+        for _ in range(4):
+            self.brain._decay_thoughts()
+        # 0.1 × 0.9⁷ ≈ 0.048 < 0.05 退出意识
+        self.assertEqual(self.brain.thought_space, [])
+
+    def test_same_content_reactivates_not_duplicates(self):
+        """同内容念头重新激活而非重复入栈"""
+        self.brain._push_thought("同一个念头")
+        self.brain._push_thought("同一个念头")
+        self.assertEqual(len(self.brain.thought_space), 1)
+        self.assertEqual(self.brain.thought_space[0].activation, 1.0)
+
+    def test_recall_enters_thought_space(self):
+        """联想回忆起的记忆进入意识，来源标记为 memory"""
+        for _ in range(30):
+            self.brain.sensory_input("钻木可以取火")
+        self.brain.sensory_input("别的内容")
+        recalled = self.brain.recall("钻木")
+        self.assertTrue(recalled)
+        sources = {t.content: t.source for t in self.brain.thought_space}
+        self.assertEqual(sources.get(recalled[0].content), "memory")
+
+    def test_think_advances_tick_and_returns_structure(self):
+        """think() 推进 tick，返回思考报告结构"""
+        self.brain.sensory_input("火焰")
+        tick_before = self.brain.tick
+        out = self.brain.think("火焰")
+        self.assertGreater(self.brain.tick, tick_before)
+        self.assertEqual(out["thought"], "火焰")
+        self.assertIn("spikes", out)
+        self.assertIn("thought_space", out)
+        self.assertIn("consolidated", out)
+
+    def test_think_empty_space_returns_none(self):
+        """无念头且无参数思考：安全返回 thought=None"""
+        out = self.brain.think()
+        self.assertIsNone(out["thought"])
+        self.assertEqual(out["thought_space"], [])
+
+    def test_think_consolidates_thought_memory(self):
+        """高激活念头固化进 STM（tag=thought）——想多了就记住了"""
+        self.brain.think("必须记住的结论")
+        tags = {m.content: m.tag for m in self.brain.short_memory}
+        self.assertEqual(tags.get("必须记住的结论"), "thought")
+
+    def test_think_uses_top_thought_by_default(self):
+        """缺省参数时思考意识焦点（激活度最高的念头）"""
+        self.brain.sensory_input("第一个刺激")
+        self.brain.sensory_input("第二个刺激")
+        out = self.brain.think()
+        top = max(self.brain.thought_space, key=lambda t: t.activation)
+        self.assertEqual(out["thought"], top.content)
+
+    def test_introspect_structure_and_metacog_log(self):
+        """introspect() 感知自身脑活动并记入元认知日志"""
+        self.brain.sensory_input("火焰是危险的")
+        entry = self.brain.introspect()
+        for key in ("tick", "mood", "top_thought", "spike_counts",
+                    "stm", "ltm", "text"):
+            self.assertIn(key, entry)
+        self.assertIn(entry["mood"],
+                      ("calm", "curiosity", "stress", "pleasure"))
+        self.assertEqual(len(self.brain.metacog_log), 1)
+        # 内省言语作为元认知念头进入思考空间
+        sources = {t.source for t in self.brain.thought_space}
+        self.assertIn("metacog", sources)
+        self.assertIn("我感到", entry["text"])
+
+    def test_introspect_empty_brain_safe(self):
+        """全新大脑内省：思考空间为空时安全返回（空）"""
+        entry = self.brain.introspect()
+        self.assertEqual(entry["top_thought"], "（空）")
+
+    def test_dna_roundtrip_preserves_thoughts(self):
+        """DNA 克隆保留思考空间与元认知日志"""
+        self.brain.sensory_input("火焰是危险的")
+        self.brain.introspect()
+        clone = AIBrainEntity.from_dna(self.brain.dump_dna())
+        self.assertEqual(len(clone.thought_space),
+                         len(self.brain.thought_space))
+        self.assertEqual(clone.metacog_log, self.brain.metacog_log)
+        src = sorted(t.content for t in self.brain.thought_space)
+        dst = sorted(t.content for t in clone.thought_space)
+        self.assertEqual(src, dst)
+
+    def test_old_dna_without_thought_fields_loads(self):
+        """旧版 DNA（无 v5.0 字段）兼容加载"""
+        dna = self.brain.dump_dna()
+        del dna["thought_space"]
+        del dna["metacog_log"]
+        clone = AIBrainEntity.from_dna(dna)
+        self.assertEqual(clone.thought_space, [])
+        self.assertEqual(clone.metacog_log, [])
+
+    def test_status_reports_thought_space(self):
+        """status() 摘要包含思考空间行"""
+        self.brain.sensory_input("火焰")
+        text = self.brain.status()
+        self.assertIn("思考空间", text)
 
 
 if __name__ == "__main__":
