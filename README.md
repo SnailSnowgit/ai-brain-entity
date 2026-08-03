@@ -252,28 +252,7 @@ for line in brain.thought_chain("火焰是危险的")["chain"]:
 # 保存"DNA"，克隆一个继承全部记忆与突触的新实体
 brain.save_dna("brain_dna.json")
 clone = AIBrainEntity.load_dna("brain_dna.json", new_name="Brain-02")
-
-# ===== 女仆人格数据集：情绪 × 动作 → 人格话术 =====
-from persona_maid import load_persona, maid_express, maid_feedback
-
-persona = load_persona()                     # data/persona_maid.json（人格：小铃）
-brain.sensory_input("主人回来啦")
-out = maid_express(brain, "主人回来啦", persona)
-# decide_action 的 (mood × verb) → 女仆话术；联想起记忆会追加一句引用
-brain.reward(0.8)
-maid_feedback(persona, "praised", seed=brain.tick)   # 受夸反应
-maid_feedback(persona, "scolded", seed=brain.tick)   # 受责反应
 ```
-
-### 女仆人格数据集（data/persona_maid.json）
-
-自建的轻量人格数据集（无现成开源"女仆人格"语料），维度与大脑实体的
-决策输出一一对应：`utterances` 覆盖 4 情绪（calm/curiosity/stress/
-pleasure）× 3 动作动词（respond/acknowledge/observe）共 72 条话术，
-另含人格档案、受夸/受责反馈（各 6 条）、问候语与 8 段多轮情景对话。
-`persona_maid.py` 为纯标准库加载器与桥接层，`maid_express(brain, stim)`
-直接复用 `decide_action` 输出选人神话术；`maid_persona_demo.py` 演示
-夸奖→愉悦、责骂→紧张的情绪驱动话术切换。
 
 ## 项目结构
 
@@ -286,15 +265,11 @@ ai_brain/
 ├── thought_chain_scenarios.py  # 脉冲思考链三场景导出（Spike CoT 对照实验 → data/）
 ├── encoder_status.py         # 多模态编码器状态导出（v3.1 自定义模型通路 → data/）
 ├── run_all.py                # 全流程统一入口（测试→演示→实验→观测数据，--quick 快速模式）
-├── persona_maid.py           # 女仆人格数据集加载器 + decide_action 桥接（零依赖）
-├── maid_persona_demo.py      # 女仆人格 × 大脑实体演示（夸奖/责骂 → 情绪话术）
 ├── tests/                    # 核心行为测试（纯标准库 unittest）
-│   ├── test_ai_brain.py      # 100 项：编码/可塑性/记忆/奖励/DNA/思考链/群体/多模态/v4.0~v4.9
-│   └── test_maid_persona.py  # 12 项：女仆数据集完整性/确定性选取/脑集成
+│   └── test_ai_brain.py      # 100 项：编码/可塑性/记忆/奖励/DNA/思考链/群体/多模态/v4.0~v4.9
 ├── docs/
 │   └── paper.md              # 学术论文（架构+实验+分析，含 v3.0 更新章节）
 ├── data/                     # 运行时数据产物
-│   ├── persona_maid.json          # 女仆人格数据集（人格档案/72条话术/反馈/情景对话）
 │   ├── experiment_results.json    # 实验 1-8 数据（统一输出）
 │   ├── brain_activity_trace.json  # 大脑活动追踪（Widget 回放数据，预生成）
 │   ├── thought_chain_scenarios.json  # Spike CoT 三场景（Widget 数据源，预生成）
