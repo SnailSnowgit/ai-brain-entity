@@ -52,3 +52,23 @@ print(list_encoders())
   进入感官层前会自动重采样到 16 维。
 - 未安装深度学习依赖时无需放置任何模型，通路会自动降级为
   确定性伪 embedding，核心功能不受影响。
+
+## 已下载模型
+
+```
+models/
+├── clip-vit-base-patch32/   # CLIP 图像编码器（605MB，经 hf-mirror 下载）
+│   ├── config.json / preprocessor_config.json / tokenizer*.json
+│   ├── vocab.json / merges.txt / special_tokens_map.json
+│   └── pytorch_model.bin    # 权重（.gitignore 已忽略）
+└── whisper-base/            # Whisper base 语音识别（139MB，官方 azureedge）
+    └── base.pt              # openai-whisper 格式（.gitignore 已忽略）
+```
+
+启用方式（需先 `pip install torch transformers openai-whisper`）：
+
+```python
+from ai_brain_entity import set_clip_model, set_whisper_model
+set_clip_model("models/clip-vit-base-patch32")   # 本地目录
+set_whisper_model("models/whisper-base/base.pt")  # 本地权重文件
+```
