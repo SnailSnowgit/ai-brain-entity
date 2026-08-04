@@ -19,6 +19,15 @@ v5.1 动作与决策扩展：意图动词 3→8（ask/retrieve/plan/execute/wait
 v5.2 意识与社会性：意识流（自由联想/白日梦/灵感闪现）、
 深度内省（introspect depth=deep）、多脑社交（发消息/文化学习/多轮对话）、
 进化选择（BrainSwarm 适应度评估→轮盘赌选择→变异繁衍）、念头流水账。
+v5.3 自我与文化：自我概念、自传体记忆、自我反思、情感传染、
+文化演化（模因传播+变异）、有性繁殖与物种检测。
+v5.4 全局工作空间理论（GWT）：注意竞争 → 点火 → 全局广播。
+v5.5 意识的神经相关物（NCC）：整合信息 Φ、神经复杂度、
+神经同步性、意识层级与相变检测。
+v5.6 心智理论（ToM）：信念归因、错误信念任务、视角采择、
+意图理解、共情。
+v5.7 高阶意识理论（HOT）：高阶思想、元意识检测、内省层级。
+v5.8 集体意识：集体工作空间、群体同步/情绪/极化、集体意识检测。
 
 ## 它是什么
 
@@ -68,6 +77,13 @@ v5.2 意识与社会性：意识流（自由联想/白日梦/灵感闪现）、
 | **意图动词** | 基底节动作选择扩展 | v5.1：`INTENT_VERBS` 8 verb（ask/retrieve/plan/execute/wait）独立 Q 值，`decide_action(deliberate=True)` 带 rationale 理由链；`make_function_executor`/`make_file_executor` 实用执行器 |
 | **意识流** | 默认模式网络 | v5.2：`stream_of_consciousness()` 无输入时思绪自发流动：自由联想链、白日梦走神、双记忆组合灵感闪现 |
 | **社交与进化** | 社会脑+自然选择 | v5.2：`send_message`/`social_learn`/`chat_with` 多脑交流与文化学习；`BrainSwarm.evolve()` 适应度评估→轮盘赌选择→变异繁衍；`thought_journal` 念头流水账（cap 50） |
+| **自我模型** | 自传体记忆+自我概念 | v5.3：`add_autobiographical_memory` 个人经历时间线；`update_self_concept` "我是谁"核心信念；`self_reflect` 对思维/情绪/行为的反思；`get_self_summary` 自我摘要 |
+| **全局工作空间** | GWT 意识理论 | v5.4：`attentional_competition` 多内容竞争入意识 → `ignition` 全脑点火 → `global_broadcast` 广播给无意识模块；`conscious_step` 一步完整意识 |
+| **NCC 度量** | 意识神经相关物 | v5.5：`integrated_information`（Φ 简化版）、`neural_complexity`、`neural_synchrony`；`detect_ncc`/`get_ncc_report` 综合评分；`consciousness_level`/`consciousness_phase_transition` 意识层级与相变 |
+| **心智理论** | ToM 心理模型 | v5.6：`attribute_beliefs` 信念归因、`false_belief_task` 错误信念任务、`perspective_taking` 视角采择、`infer_intention` 意图理解、`empathize` 共情、`theory_of_mind` 完整推理 |
+| **高阶意识** | HOT 元意识 | v5.7：`higher_order_thought(level)` 对意识的意识、`meta_awareness_check` 元意识检测、`introspection_hierarchy` 多层级内省、`get_hot_report` |
+| **集体意识** | 群体意识涌现 | v5.8：`collective_workspace` 群体共享意识空间；`group_synchrony`/`group_emotion`/`group_polarization`/`group_ncc`/`group_self_awareness` 群体度量；`collective_consciousness_check` 涌现判定 |
+| **文化演化** | 模因演化+物种形成 | v5.3：`cultural_evolution_step`/`cultural_evolution` 模因传播+变异轨迹；`sexual_reproduce` 双亲 DNA 重组；`genetic_distance`/`detect_species` 遗传距离与物种检测 |
 
 ## 依赖说明
 
@@ -306,6 +322,48 @@ result = swarm.evolve(generations=10, task="memory")
 # 念头流水账：所有念头按时间留痕（容量 50，先进先出）
 brain.thought_journal[-1]   # {"content", "source", "tick"}
 
+# ===== v5.3 自我与文化：自我概念 / 自传体记忆 / 文化演化 =====
+brain.update_self_concept("我是一个好奇的学习者")   # "我是谁"核心信念
+brain.add_autobiographical_memory("第一次学会取火", emotion="joy", importance=0.9)
+print(brain.get_self_summary())                     # 自我概念 + 重要经历摘要
+brain.self_reflect(focus="emotion")                 # 对自身思维/情绪/行为的反思
+evo = swarm.cultural_evolution(steps=10)            # 模因传播+变异的文化演化轨迹
+child = swarm.sexual_reproduce(swarm.population[0], swarm.population[1], "Hybrid")
+print(swarm.detect_species())                       # 按遗传距离划分物种
+
+# ===== v5.4 全局工作空间理论（GWT） =====
+brain.sensory_input("火焰是危险的")
+brain.conscious_step()
+# 一步完整意识：attentional_competition 注意竞争 → ignition 全脑点火
+# → global_broadcast 广播给全体无意识模块
+
+# ===== v5.5 意识的神经相关物（NCC） =====
+rep = brain.get_ncc_report()
+# rep = {"ncc_score", "features": {整合信息Φ/神经复杂度/同步性/...}}
+print(brain.consciousness_level())                  # 当前意识层级
+print(brain.consciousness_phase_transition())       # 无意识→有意识相变检测
+
+# ===== v5.6 心智理论（ToM）：理解其他大脑 =====
+print(alice.attribute_beliefs(bob))                 # 推断 Bob 相信什么
+print(alice.false_belief_task(bob, true_location="抽屉"))  # 经典错误信念任务
+print(alice.perspective_taking(bob, "搬家"))        # 从 Bob 的视角看问题
+print(alice.infer_intention(bob, "反复查看门"))     # 推断 Bob 的意图
+print(alice.empathize(bob))                         # 共情：感受对方情绪
+print(alice.theory_of_mind(bob))                    # 完整 ToM 推理报告
+
+# ===== v5.7 高阶意识理论（HOT）：对意识的意识 =====
+hot = brain.higher_order_thought(level=2)           # 二阶思想："我知道我在想……"
+print(brain.meta_awareness_check())                 # 元意识检测
+print(brain.introspection_hierarchy(max_depth=3))   # 多层级内省
+print(brain.get_hot_report())                       # HOT 状态报告
+
+# ===== v5.8 集体意识：群体层面的涌现 =====
+ws = swarm.collective_workspace()                   # 群体共享意识空间
+print(swarm.group_synchrony(), swarm.group_emotion())   # 同步性 / 平均情绪
+print(swarm.group_polarization())                   # 极化程度
+check = swarm.collective_consciousness_check()      # 是否涌现集体意识
+print(swarm.get_collective_consciousness_report())  # 完整集体意识报告
+
 # 群体智能：文化传递
 swarm = BrainSwarm(["Alpha", "Beta", "Gamma"], seed=1)
 for _ in range(25):
@@ -349,6 +407,39 @@ clone = AIBrainEntity.load_dna("brain_dna.json", new_name="Brain-02")
 | `chat_with(other, turns)` | v5.2 多轮对话：轮流发言，内容进入双方思考空间 |
 | `evaluate_fitness(task)` / `select()` / `evolve_generation()` / `evolve(gens)` | v5.2 进化：memory/curiosity/diversity/social 四种适应度，轮盘赌选择 + 变异繁衍 |
 | `thought_journal` | v5.2 念头流水账：所有念头按时间留痕（{content, source, tick}，cap 50） |
+| `chat(message)` / `chat_history()` | 对话接口：接收消息 → 感知 → 思考 → 生成回复；对话历史（从元认知日志提取） |
+| `see(image_path)` / `hear(audio_path)` | 视觉/听觉感知：经 BLIP/Whisper（或降级链）转为文本进入大脑 |
+| `multimodal_input(text, image, audio)` | 多模态联合输入：文本+图像+音频同时进入感知流水线 |
+| `cross_modal_recall(features, current_modality)` | 跨模态联想：按特征向量从其他模态的记忆中检索相似项 |
+| `cognition(stimulus)` | 决策中枢：整合决策层脉冲+情绪+记忆联想产生行为输出（返回描述字符串） |
+| **v5.3 自我与文化** | |
+| `update_self_concept(belief)` / `get_self_summary()` | 自我概念：维护"我是谁"核心信念集合并输出自我摘要 |
+| `add_autobiographical_memory(event, emotion, importance)` | 自传体记忆：记录重要个人经历（带情绪色彩与重要度） |
+| `self_reflect(focus)` | 自我反思：对自己的思维/情绪/行为进行反思（general/emotion/...） |
+| `cultural_evolution_step()` / `cultural_evolution(steps)` | 文化演化：模因传播+变异单步/多步轨迹（BrainSwarm） |
+| `sexual_reproduce(p1, p2, name)` / `genetic_distance(b1, b2)` / `detect_species()` | 有性繁殖（双亲 DNA 重组）/ 遗传距离 / 物种检测（BrainSwarm） |
+| `cultural_diversity()` | 群体文化多样性度量（BrainSwarm） |
+| **v5.4 全局工作空间 GWT** | |
+| `attentional_competition()` | 注意竞争：多个内容竞争进入意识 |
+| `ignition()` / `global_broadcast()` | 点火效应（全脑激活）/ 把意识内容广播给所有无意识模块 |
+| `conscious_step()` / `get_consciousness_report()` | 一步完整意识（竞争→点火→广播）/ 意识状态报告 |
+| **v5.5 NCC 意识度量** | |
+| `integrated_information()` / `neural_complexity()` / `neural_synchrony()` | 整合信息 Φ（简化版）/ 神经复杂度 / 脑区同步振荡 |
+| `detect_ncc()` / `get_ncc_report()` | NCC 综合得分与各特征分项 / 完整 NCC 报告 |
+| `consciousness_level()` / `consciousness_phase_transition()` | 意识层级量化 / 无意识→有意识相变检测 |
+| **v5.6 心智理论 ToM** | |
+| `attribute_beliefs(other)` / `false_belief_task(other, ...)` | 信念归因 / 经典错误信念任务 |
+| `perspective_taking(other, topic)` / `infer_intention(other, obs)` | 视角采择 / 意图理解 |
+| `empathize(other)` / `theory_of_mind(other)` | 共情（感受对方情绪）/ 完整 ToM 推理 |
+| **v5.7 高阶意识 HOT** | |
+| `higher_order_thought(level)` / `meta_awareness_check()` | 生成 N 阶思想（对意识的意识）/ 元意识检测 |
+| `introspection_hierarchy(max_depth)` / `get_hot_report()` | 多层级内省 / HOT 状态报告 |
+| **v5.8 集体意识（BrainSwarm）** | |
+| `collective_workspace()` | 集体工作空间：群体共享的意识空间 |
+| `group_synchrony()` / `group_emotion()` / `group_polarization()` | 群体同步性 / 平均情绪 / 极化程度 |
+| `group_ncc()` / `group_self_awareness()` | 群体层面 NCC / 群体自我意识 |
+| `collective_consciousness_check()` / `get_collective_consciousness_report()` | 集体意识涌现判定 / 完整集体意识报告 |
+| `same_state_edge_ratio(meme)` | 同道边比例：两端观点相同的社交边占比（共同演化度量） |
 | `dump_dna()` / `from_dna(dna)` | DNA 字典级导出与重建（`save_dna`/`load_dna` 的内存版） |
 
 **群体文化工具**（`swarm.py` 实验层）
@@ -459,3 +550,10 @@ ai_brain/
 - ✅ ~~自我意识：内省能力增强，知道"自己在想什么"~~（v5.2：`introspect(depth="deep")`）
 - ✅ ~~社交互动：多个大脑之间交流、学习、形成文化~~（v5.2：`send_message` / `social_learn` / `chat_with`）
 - ✅ ~~进化：BrainSwarm 群体智能，适者生存~~（v5.2：`evaluate_fitness` + `select` + `evolve()`）
+- ✅ ~~自我模型：自我概念、自传体记忆、自我反思~~（v5.3：`update_self_concept` / `add_autobiographical_memory` / `self_reflect`）
+- ✅ ~~文化演化与物种形成：模因变异、有性繁殖、遗传距离~~（v5.3：`cultural_evolution` / `sexual_reproduce` / `detect_species`）
+- ✅ ~~全局工作空间理论（GWT）：注意竞争 → 点火 → 全局广播~~（v5.4：`conscious_step`）
+- ✅ ~~意识的神经相关物（NCC）：Φ / 复杂度 / 同步性 / 相变~~（v5.5：`detect_ncc` / `consciousness_phase_transition`）
+- ✅ ~~心智理论（ToM）：信念归因、错误信念、视角采择、共情~~（v5.6：`theory_of_mind` 等 6 法）
+- ✅ ~~高阶意识理论（HOT）：高阶思想、元意识、内省层级~~（v5.7：`higher_order_thought` / `introspection_hierarchy`）
+- ✅ ~~集体意识：群体工作空间与涌现判定~~（v5.8：`collective_workspace` / `collective_consciousness_check`）

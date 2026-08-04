@@ -701,6 +701,21 @@ class AIBrainEntity:
         self.self_concept: List[str] = []       # 自我概念条目
         # v5.3 自传体记忆：个人经历的时间线（重要事件）
         self.autobiographical_memory: List[Dict] = []  # {tick, event, emotion, importance}
+        # v5.4 全局工作空间理论（GWT）：
+        # 专门模块（无意识处理器）：记忆、情绪、感知、语言等
+        self.specialized_modules: Dict[str, Dict] = {}  # {模块名: {状态, 输出}}
+        # 全局广播历史：意识内容被广播给所有模块的记录
+        self.broadcast_history: List[Dict] = []
+        # 点火状态：内容进入意识时的全脑激活
+        self.ignition_state: bool = False
+        self.ignition_count: int = 0  # 点火次数（意识涌现次数）
+        # v5.6 心智理论（ToM）：对其他大脑的心理模型
+        self.mental_models: Dict[str, Dict] = {}  # {大脑名: {信念, 欲望, 意图, 情绪}}
+        self.tom_accuracy: float = 0.7  # 心智理论的准确度（0-1）
+        # v5.7 高阶意识理论（HOT）：对意识的意识（元意识）
+        self.hot_level: int = 0  # 当前意识层级（0=无意识, 1=一阶, 2=二阶, 3=三阶...）
+        self.hot_history: List[Dict] = []  # 高阶思想历史
+        self.meta_awareness: float = 0.0  # 元意识程度 [0, 1]
 
         # v4.8 睡眠-清醒节律：离线重放固化 + 突触稳态缩放（SHY）
         self.sleep_replay_gain = 0.15       # 每次重放的 STM 权重增益
@@ -746,6 +761,9 @@ class AIBrainEntity:
             "ltm_size": [],
             "synapse_mean": [],
         }
+
+        # v5.4 初始化全局工作空间的专门模块
+        self._init_specialized_modules()
 
     # ------------------ 初始化 ------------------
 
@@ -952,7 +970,7 @@ class AIBrainEntity:
             assoc_n.step(total_in)
             if assoc_n.spike:
                 for post in self._recurrent_out.get(assoc_n.id, ()):
-                    w = self.recurrent_synapse[(assoc_n.id, post)]
+                    w = self.recurrent_synapse.get((assoc_n.id, post), 0.0)
                     pending_next[post] = pending_next.get(post, 0.0) + w
         if self.hebbian_enabled:
             self._stdp_update(
@@ -968,7 +986,7 @@ class AIBrainEntity:
             dec_n.step(total_in)
             if dec_n.spike:
                 for post in self._recurrent_out.get(dec_n.id, ()):
-                    w = self.recurrent_synapse[(dec_n.id, post)]
+                    w = self.recurrent_synapse.get((dec_n.id, post), 0.0)
                     pending_next[post] = pending_next.get(post, 0.0) + w
         if self.hebbian_enabled:
             self._stdp_update(
@@ -1237,6 +1255,608 @@ class AIBrainEntity:
             return None
         return max(self.thought_space, key=lambda t: t.activation)
 
+    # ------------------ 全局工作空间理论 GWT（v5.4） ------------------
+
+    def _init_specialized_modules(self):
+        """初始化专门模块（无意识处理器）。
+
+        根据全局工作空间理论，大脑由许多专门的无意识模块组成，
+        它们竞争进入全局工作空间（意识）。
+        获胜的模块会把内容广播给所有其他模块。
+        """
+        self.specialized_modules = {
+            "perception": {
+                "name": "感知模块",
+                "description": "处理外部感官输入",
+                "activation": 0.0,
+                "output": None,
+            },
+            "memory": {
+                "name": "记忆模块",
+                "description": "检索和存储记忆",
+                "activation": 0.0,
+                "output": None,
+            },
+            "emotion": {
+                "name": "情绪模块",
+                "description": "评估情绪意义",
+                "activation": 0.0,
+                "output": None,
+            },
+            "language": {
+                "name": "语言模块",
+                "description": "语言理解和生成",
+                "activation": 0.0,
+                "output": None,
+            },
+            "attention": {
+                "name": "注意力模块",
+                "description": "选择和聚焦",
+                "activation": 0.0,
+                "output": None,
+            },
+            "metacognition": {
+                "name": "元认知模块",
+                "description": "监控和调节认知过程",
+                "activation": 0.0,
+                "output": None,
+            },
+            "motor": {
+                "name": "运动模块",
+                "description": "计划和执行动作",
+                "activation": 0.0,
+                "output": None,
+            },
+            "value": {
+                "name": "价值评估模块",
+                "description": "评估奖励和价值",
+                "activation": 0.0,
+                "output": None,
+            },
+        }
+
+    def attentional_competition(self) -> Dict:
+        """注意力竞争：多个内容竞争进入意识。
+
+        根据全局工作空间理论，无意识模块不断产生候选内容，
+        它们竞争进入全局工作空间（意识）。
+        只有激活度最高的内容才能进入意识。
+
+        返回：
+            winner: 获胜的内容
+            competitors: 所有竞争者列表
+            winner_activation: 获胜者的激活度
+        """
+        if not self.thought_space:
+            return {"winner": None, "competitors": [], "winner_activation": 0.0}
+
+        # 按激活度排序
+        competitors = sorted(self.thought_space,
+                             key=lambda t: t.activation, reverse=True)
+        winner = competitors[0]
+
+        return {
+            "winner": winner.content,
+            "winner_source": winner.source,
+            "winner_activation": round(winner.activation, 3),
+            "competitors": [
+                {"content": t.content[:20], "source": t.source,
+                 "activation": round(t.activation, 3)}
+                for t in competitors
+            ],
+            "n_competitors": len(competitors),
+        }
+
+    def global_broadcast(self) -> Dict:
+        """全局广播：把意识内容广播给所有无意识模块。
+
+        根据全局工作空间理论，进入意识的内容会被全局广播，
+        所有专门模块都能接收这个信息。
+        这就是意识的"全局可用性"。
+
+        返回：
+            broadcast_content: 广播的内容
+            broadcast_to: 接收广播的模块列表
+            module_reactions: 各模块的反应
+        """
+        top = self.top_thought()
+        if top is None:
+            return {"broadcast_content": None, "broadcast_to": [],
+                    "module_reactions": {}}
+
+        content = top.content
+        broadcast_to = list(self.specialized_modules.keys())
+
+        # 各模块对广播内容的反应（模拟）
+        module_reactions = {}
+        for mod_name, mod in self.specialized_modules.items():
+            # 模块激活度提升（因为接收到了广播）
+            mod["activation"] = min(1.0, mod["activation"] + 0.2)
+            mod["output"] = content
+            module_reactions[mod_name] = {
+                "activation": round(mod["activation"], 3),
+                "received": True,
+            }
+
+        # 记录广播历史
+        broadcast_record = {
+            "tick": self.tick,
+            "content": content,
+            "source": top.source,
+            "broadcast_to": broadcast_to,
+            "n_modules": len(broadcast_to),
+        }
+        self.broadcast_history.append(broadcast_record)
+        if len(self.broadcast_history) > 100:
+            self.broadcast_history.pop(0)
+
+        return {
+            "broadcast_content": content,
+            "broadcast_source": top.source,
+            "broadcast_to": broadcast_to,
+            "n_modules": len(broadcast_to),
+            "module_reactions": module_reactions,
+        }
+
+    def ignition(self) -> Dict:
+        """点火效应（Ignition）：内容进入意识时的全脑激活。
+
+        根据全局工作空间理论，当内容进入意识时，会触发"点火"——
+        全脑范围的激活放大，就像点燃了一场野火。
+        这是意识的神经相关物（NCC）之一。
+
+        点火的特征：
+        1. 突然的、非线性的激活跃升
+        2. 全脑范围的传播
+        3. 持续一段时间
+        4. 之后逐渐衰减
+
+        返回：
+            ignited: 是否发生了点火
+            ignition_strength: 点火强度
+            spike_increase: 脉冲数增加量
+        """
+        top = self.top_thought()
+        if top is None:
+            return {"ignited": False, "ignition_strength": 0.0,
+                    "spike_increase": 0}
+
+        # 点火条件：激活度超过阈值，且比第二名高很多（赢者通吃）
+        if len(self.thought_space) >= 2:
+            sorted_thoughts = sorted(self.thought_space,
+                                     key=lambda t: t.activation, reverse=True)
+            top_activation = sorted_thoughts[0].activation
+            second_activation = sorted_thoughts[1].activation
+            # 点火条件：第一名激活度 > 0.7，且比第二名高 50% 以上
+            should_ignite = (top_activation > 0.7
+                             and top_activation > second_activation * 1.5)
+        else:
+            # 只有一个念头，且激活度足够高
+            should_ignite = top.activation > 0.8
+
+        if should_ignite and not self.ignition_state:
+            # 点火发生！
+            self.ignition_state = True
+            self.ignition_count += 1
+
+            # 模拟全脑激活：脉冲数增加
+            s, a, d = self.spike_counts()
+            baseline_spikes = s + a + d
+            ignition_strength = top.activation
+
+            # 记录点火事件
+            ignition_event = {
+                "tick": self.tick,
+                "content": top.content,
+                "source": top.source,
+                "strength": round(ignition_strength, 3),
+                "baseline_spikes": baseline_spikes,
+            }
+            self.broadcast_history.append({"type": "ignition", **ignition_event})
+
+            return {
+                "ignited": True,
+                "ignition_strength": round(ignition_strength, 3),
+                "content": top.content,
+                "source": top.source,
+                "ignition_count": self.ignition_count,
+            }
+        elif not should_ignite and self.ignition_state:
+            # 点火结束
+            self.ignition_state = False
+            return {"ignited": False, "ignition_strength": 0.0,
+                    "message": "点火结束"}
+        else:
+            return {
+                "ignited": self.ignition_state,
+                "ignition_strength": round(top.activation, 3) if top else 0,
+                "content": top.content if top else None,
+                "ignition_count": self.ignition_count,
+            }
+
+    def conscious_step(self) -> Dict:
+        """意识的一个完整步骤：竞争 → 点火 → 广播。
+
+        这是全局工作空间理论的完整意识循环：
+        1. 多个无意识内容竞争进入意识
+        2. 获胜者触发点火（全脑激活）
+        3. 内容被全局广播给所有模块
+        4. 各模块接收并处理，产生新的候选内容
+
+        返回：
+            competition: 注意力竞争结果
+            ignition: 点火状态
+            broadcast: 全局广播结果
+        """
+        # 1. 注意力竞争
+        competition = self.attentional_competition()
+
+        # 2. 点火检测
+        ignition = self.ignition()
+
+        # 3. 全局广播（只有点火时才广播）
+        if ignition["ignited"]:
+            broadcast = self.global_broadcast()
+        else:
+            broadcast = {"broadcast_content": None, "broadcast_to": []}
+
+        # 4. 衰减思考空间（旧念头淡出）
+        self._decay_thoughts()
+
+        return {
+            "tick": self.tick,
+            "competition": competition,
+            "ignition": ignition,
+            "broadcast": broadcast,
+            "thought_space_size": len(self.thought_space),
+            "conscious": self.ignition_state,
+        }
+
+    def get_consciousness_report(self) -> Dict:
+        """获取意识状态报告。
+
+        这是对当前意识状态的完整描述，
+        就像在问："你现在意识到了什么？"
+        """
+        top = self.top_thought()
+        competition = self.attentional_competition()
+
+        return {
+            "tick": self.tick,
+            "name": self.name,
+            "conscious": self.ignition_state,
+            "ignition_count": self.ignition_count,
+            "current_content": top.content if top else None,
+            "current_source": top.source if top else None,
+            "current_activation": round(top.activation, 3) if top else 0,
+            "thought_space_size": len(self.thought_space),
+            "thought_capacity": self.thought_capacity,
+            "competitors": competition["n_competitors"],
+            "mood": max(self.emotion, key=lambda k: self.emotion[k]),
+            "attention": round(self.attention_factor, 3),
+            "novelty": round(self.novelty, 3),
+            "broadcast_count": len(self.broadcast_history),
+            "modules_active": sum(1 for m in self.specialized_modules.values()
+                                  if m["activation"] > 0.3),
+        }
+
+    # ------------------ 意识的神经相关物 NCC（v5.5） ------------------
+
+    def neural_synchrony(self) -> Dict:
+        """计算神经同步性（不同脑区之间的同步振荡）。
+
+        意识的神经相关物之一是gamma频段同步（30-80Hz）。
+        当意识出现时，不同脑区的神经元活动会变得同步。
+
+        这里我们计算三层网络之间的脉冲同步性。
+
+        返回：
+            synchrony: 整体同步性 [0, 1]
+            sense_assoc_sync: 感官层-联想层同步性
+            assoc_decision_sync: 联想层-决策层同步性
+            sense_decision_sync: 感官层-决策层同步性
+        """
+        # 获取各层脉冲状态
+        sense_spikes = set(n.id for n in self.sense_layer if n.spike)
+        assoc_spikes = set(n.id for n in self.assoc_layer if n.spike)
+        decision_spikes = set(n.id for n in self.decision_layer if n.spike)
+
+        # 计算两层之间的同步性（基于共同激活的神经元比例）
+        def layer_sync(layer1_spikes, layer2_spikes, n1, n2):
+            """计算两层之间的同步性"""
+            if not layer1_spikes and not layer2_spikes:
+                return 0.0
+            # 用脉冲数的相似度来衡量同步性
+            ratio1 = len(layer1_spikes) / max(n1, 1)
+            ratio2 = len(layer2_spikes) / max(n2, 1)
+            # 同步性 = 1 - |ratio1 - ratio2|（激活比例越接近，越同步）
+            return 1.0 - abs(ratio1 - ratio2)
+
+        sense_assoc = layer_sync(sense_spikes, assoc_spikes,
+                                 len(self.sense_layer), len(self.assoc_layer))
+        assoc_decision = layer_sync(assoc_spikes, decision_spikes,
+                                    len(self.assoc_layer), len(self.decision_layer))
+        sense_decision = layer_sync(sense_spikes, decision_spikes,
+                                    len(self.sense_layer), len(self.decision_layer))
+
+        # 整体同步性 = 三层之间同步性的平均值
+        overall = (sense_assoc + assoc_decision + sense_decision) / 3
+
+        return {
+            "synchrony": round(overall, 3),
+            "sense_assoc_sync": round(sense_assoc, 3),
+            "assoc_decision_sync": round(assoc_decision, 3),
+            "sense_decision_sync": round(sense_decision, 3),
+            "sense_spikes": len(sense_spikes),
+            "assoc_spikes": len(assoc_spikes),
+            "decision_spikes": len(decision_spikes),
+        }
+
+    def neural_complexity(self) -> Dict:
+        """计算神经复杂度（大脑活动的复杂程度）。
+
+        意识的神经相关物之一是神经活动的复杂度。
+        有意识的大脑活动既不是完全有序的（癫痫），
+        也不是完全无序的（深度睡眠），而是处于"混沌边缘"。
+
+        复杂度 = 整合度 × 分化度
+        - 整合度：各脑区之间的连接程度
+        - 分化度：各脑区活动的差异程度
+
+        返回：
+            complexity: 神经复杂度
+            integration: 整合度
+            differentiation: 分化度
+            entropy: 熵（无序程度）
+        """
+        # 计算各层的脉冲率
+        sense_rate = sum(1 for n in self.sense_layer if n.spike) / len(self.sense_layer)
+        assoc_rate = sum(1 for n in self.assoc_layer if n.spike) / len(self.assoc_layer)
+        decision_rate = sum(1 for n in self.decision_layer if n.spike) / len(self.decision_layer)
+
+        rates = [sense_rate, assoc_rate, decision_rate]
+
+        # 分化度：各层活动的差异程度（标准差）
+        mean_rate = sum(rates) / len(rates)
+        variance = sum((r - mean_rate) ** 2 for r in rates) / len(rates)
+        differentiation = min(1.0, variance * 10)  # 缩放
+
+        # 整合度：各层之间的连接强度（突触权重的平均值）
+        ff_weights = list(self.synapse.values())
+        integration = sum(ff_weights) / len(ff_weights) if ff_weights else 0
+
+        # 熵：活动的无序程度
+        import math
+        def safe_log(x):
+            return math.log(x) if x > 0 else 0
+
+        entropy = 0
+        for r in rates:
+            if r > 0 and r < 1:
+                entropy -= r * safe_log(r) + (1 - r) * safe_log(1 - r)
+        entropy = entropy / len(rates)  # 归一化
+
+        # 复杂度 = 整合度 × 分化度 × 熵
+        complexity = integration * differentiation * (1 + entropy)
+
+        return {
+            "complexity": round(complexity, 4),
+            "integration": round(integration, 4),
+            "differentiation": round(differentiation, 4),
+            "entropy": round(entropy, 4),
+            "sense_rate": round(sense_rate, 3),
+            "assoc_rate": round(assoc_rate, 3),
+            "decision_rate": round(decision_rate, 3),
+        }
+
+    def integrated_information(self) -> Dict:
+        """计算整合信息（Φ值的简化版本）。
+
+        整合信息理论（IIT）认为，意识 = 整合信息（Φ）。
+        Φ 衡量的是系统作为整体产生的信息，
+        大于各部分单独产生的信息之和。
+
+        这里我们用简化的方法计算 Φ：
+        Φ = 整体熵 - 各部分熵之和
+
+        返回：
+            phi: 整合信息 Φ 值
+            whole_entropy: 整体熵
+            parts_entropy_sum: 各部分熵之和
+            phi_ratio: Φ / 整体熵
+        """
+        import math
+
+        def safe_log(x):
+            return math.log(x) if x > 0 else 0
+
+        def layer_entropy(layer):
+            """计算一层神经元的熵"""
+            n = len(layer)
+            n_spike = sum(1 for neuron in layer if neuron.spike)
+            p = n_spike / n  # 发放概率
+            if p <= 0 or p >= 1:
+                return 0.0
+            return -(p * safe_log(p) + (1 - p) * safe_log(1 - p))
+
+        # 各部分熵
+        sense_ent = layer_entropy(self.sense_layer)
+        assoc_ent = layer_entropy(self.assoc_layer)
+        decision_ent = layer_entropy(self.decision_layer)
+        parts_sum = sense_ent + assoc_ent + decision_ent
+
+        # 整体熵（近似：用所有神经元的平均发放率计算）
+        all_neurons = self.sense_layer + self.assoc_layer + self.decision_layer
+        n_all = len(all_neurons)
+        n_spike_all = sum(1 for n in all_neurons if n.spike)
+        p_all = n_spike_all / n_all
+        if p_all <= 0 or p_all >= 1:
+            whole_ent = 0.0
+        else:
+            whole_ent = -(p_all * safe_log(p_all) + (1 - p_all) * safe_log(1 - p_all))
+
+        # Φ = 整体熵 - 各部分熵之和
+        # （简化版本，真正的Φ需要考虑最小信息分割）
+        phi = max(0, whole_ent * 3 - parts_sum)  # 乘以3是因为有3层
+
+        phi_ratio = phi / whole_ent if whole_ent > 0 else 0
+
+        return {
+            "phi": round(phi, 4),
+            "whole_entropy": round(whole_ent, 4),
+            "parts_entropy_sum": round(parts_sum, 4),
+            "phi_ratio": round(phi_ratio, 4),
+            "sense_entropy": round(sense_ent, 4),
+            "assoc_entropy": round(assoc_ent, 4),
+            "decision_entropy": round(decision_ent, 4),
+        }
+
+    def detect_ncc(self) -> Dict:
+        """检测意识的神经相关物（NCC）。
+
+        综合多个指标，判断当前的意识状态，
+        并提取意识的神经标志。
+
+        NCC 特征：
+        1. 高神经同步性（gamma同步）
+        2. 适度的神经复杂度（混沌边缘）
+        3. 高整合信息（Φ值）
+        4. 点火效应（全脑激活）
+        5. 全局广播（信息传遍全脑）
+
+        返回：
+            conscious: 是否有意识
+            ncc_score: NCC 综合得分 [0, 1]
+            features: 各NCC特征的得分
+            markers: 意识的神经标志列表
+        """
+        # 获取各个指标
+        sync = self.neural_synchrony()
+        comp = self.neural_complexity()
+        info = self.integrated_information()
+
+        # 各特征得分（0-1）
+        features = {
+            "synchrony": sync["synchrony"],  # 神经同步性
+            "complexity": min(1.0, comp["complexity"] * 5),  # 神经复杂度（缩放）
+            "integration": min(1.0, info["phi"] * 10),  # 整合信息（缩放）
+            "ignition": 1.0 if self.ignition_state else 0.0,  # 点火效应
+            "broadcast": min(1.0, len(self.broadcast_history) / 10),  # 全局广播
+        }
+
+        # NCC 综合得分（加权平均）
+        weights = {
+            "synchrony": 0.2,
+            "complexity": 0.2,
+            "integration": 0.2,
+            "ignition": 0.25,
+            "broadcast": 0.15,
+        }
+        ncc_score = sum(features[k] * weights[k] for k in features)
+
+        # 判断是否有意识（阈值 0.5）
+        conscious = ncc_score > 0.5
+
+        # 提取意识的神经标志
+        markers = []
+        if features["synchrony"] > 0.6:
+            markers.append("高神经同步性")
+        if features["complexity"] > 0.5:
+            markers.append("适度神经复杂度")
+        if features["integration"] > 0.5:
+            markers.append("高整合信息")
+        if features["ignition"] > 0:
+            markers.append("点火效应")
+        if features["broadcast"] > 0.3:
+            markers.append("全局广播")
+
+        return {
+            "conscious": conscious,
+            "ncc_score": round(ncc_score, 3),
+            "features": {k: round(v, 3) for k, v in features.items()},
+            "markers": markers,
+            "n_markers": len(markers),
+        }
+
+    def consciousness_phase_transition(self, history_length: int = 20) -> Dict:
+        """检测意识的相变（从无意识到有意识的临界转换）。
+
+        相变的特征：
+        1. 突然的、非线性的变化
+        2. 临界慢化（变化速度变慢）
+        3. 方差增加
+        4. 自相关增加
+
+        返回：
+            phase: 当前阶段（unconscious / transition / conscious）
+            transition_detected: 是否检测到相变
+            criticality: 临界程度 [0, 1]
+            trend: 变化趋势
+        """
+        # 这里简化实现：用最近几tick的NCC得分变化来判断
+        # 由于我们没有完整的历史记录，用当前状态来估计
+
+        ncc = self.detect_ncc()
+        score = ncc["ncc_score"]
+
+        # 判断阶段
+        if score < 0.3:
+            phase = "unconscious"  # 无意识
+        elif score < 0.7:
+            phase = "transition"   # 过渡态
+        else:
+            phase = "conscious"    # 有意识
+
+        # 临界程度：离0.5越近，越接近临界点
+        criticality = 1.0 - abs(score - 0.5) * 2
+
+        # 变化趋势（简化：用思考空间大小变化来估计）
+        if len(self.thought_space) > self.thought_capacity * 0.8:
+            trend = "increasing"  # 增加
+        elif len(self.thought_space) < self.thought_capacity * 0.3:
+            trend = "decreasing"  # 减少
+        else:
+            trend = "stable"      # 稳定
+
+        return {
+            "phase": phase,
+            "transition_detected": phase == "transition",
+            "criticality": round(criticality, 3),
+            "ncc_score": score,
+            "trend": trend,
+            "thought_space_fill": round(
+                len(self.thought_space) / self.thought_capacity, 3),
+        }
+
+    def get_ncc_report(self) -> Dict:
+        """获取完整的 NCC 报告。
+
+        这是对意识神经状态的完整分析，
+        就像在做"意识脑电图"。
+        """
+        sync = self.neural_synchrony()
+        comp = self.neural_complexity()
+        info = self.integrated_information()
+        ncc = self.detect_ncc()
+        phase = self.consciousness_phase_transition()
+
+        return {
+            "tick": self.tick,
+            "name": self.name,
+            "conscious": ncc["conscious"],
+            "ncc_score": ncc["ncc_score"],
+            "phase": phase["phase"],
+            "criticality": phase["criticality"],
+            "markers": ncc["markers"],
+            "synchrony": sync,
+            "complexity": comp,
+            "integrated_information": info,
+            "ncc_features": ncc["features"],
+            "ignition_count": self.ignition_count,
+            "broadcast_count": len(self.broadcast_history),
+            "thought_space_size": len(self.thought_space),
+        }
+
     def _perceive(self, content: str, input_currents: List[float],
                   tag: str, modality: str = "text",
                   features: list = None) -> str:
@@ -1332,9 +1952,10 @@ class AIBrainEntity:
                 dt = now - last.get(pre, -10 ** 9)
                 if 0 <= dt < win:
                     k = (pre, j)
-                    self.recurrent_synapse[k] = min(
-                        0.5, self.recurrent_synapse[k]
-                        + a_plus * math.exp(-dt / tau))
+                    if k in self.recurrent_synapse:
+                        self.recurrent_synapse[k] = min(
+                            0.5, self.recurrent_synapse[k]
+                            + a_plus * math.exp(-dt / tau))
             # LTD：outgoing（前馈 + 循环），post 严格早于 pre 发放
             for post in self._ff_out.get(j, ()):
                 dt = now - last.get(post, -10 ** 9)
@@ -1346,9 +1967,10 @@ class AIBrainEntity:
                 dt = now - last.get(post, -10 ** 9)
                 if 0 < dt < win:
                     k = (j, post)
-                    self.recurrent_synapse[k] = max(
-                        0.0, self.recurrent_synapse[k]
-                        - a_minus * math.exp(-dt / tau))
+                    if k in self.recurrent_synapse:
+                        self.recurrent_synapse[k] = max(
+                            0.0, self.recurrent_synapse[k]
+                            - a_minus * math.exp(-dt / tau))
             last[j] = now
 
     # ------------------ 情绪与注意力 ------------------
@@ -1815,6 +2437,284 @@ class AIBrainEntity:
 
         return reflection
 
+    # ------------------ 高阶意识理论 HOT（v5.7） ------------------
+
+    def higher_order_thought(self, level: int = 1) -> Dict:
+        """生成高阶思想（Higher-Order Thought）。
+
+        高阶意识理论认为：一个心理状态是有意识的，
+        当且仅当我们有一个关于它的高阶思想（HOT）。
+
+        一阶思想："我看到红色"
+        二阶思想："我知道我看到红色"
+        三阶思想："我知道我知道我看到红色"
+        ...
+
+        参数：
+            level: 高阶思想的层级（1=一阶, 2=二阶, 3=三阶...）
+
+        返回：
+            hot: 高阶思想内容
+            level: 层级
+            base_thought: 基础思想（被反思的思想）
+        """
+        # 获取当前的主导念头（基础思想）
+        top = self.top_thought()
+        base_thought = top.content if top else "（空）"
+        base_source = top.source if top else "unknown"
+
+        if level <= 0:
+            # 零阶：无意识的心理状态
+            return {
+                "level": 0,
+                "hot": base_thought,
+                "base_thought": base_thought,
+                "conscious": False,
+            }
+
+        # 生成高阶思想
+        if level == 1:
+            # 一阶：基本意识
+            hot = f"我意识到「{base_thought}」"
+        elif level == 2:
+            # 二阶：元意识
+            hot = f"我知道我意识到「{base_thought}」"
+        elif level == 3:
+            # 三阶：对元意识的意识
+            hot = f"我知道我知道我意识到「{base_thought}」"
+        else:
+            # 更高阶（简化处理）
+            hot = f"我{'知道' * level}我意识到「{base_thought}」"
+
+        # 高阶思想进入思考空间
+        self._push_thought(hot, source=f"hot_level_{level}")
+
+        # 更新当前意识层级
+        if level > self.hot_level:
+            self.hot_level = level
+
+        # 记录高阶思想历史
+        hot_record = {
+            "tick": self.tick,
+            "level": level,
+            "hot": hot,
+            "base_thought": base_thought,
+            "base_source": base_source,
+        }
+        self.hot_history.append(hot_record)
+        if len(self.hot_history) > 50:
+            self.hot_history.pop(0)
+
+        # 更新元意识程度
+        self.meta_awareness = min(1.0, self.meta_awareness + 0.1 * level)
+
+        return {
+            "level": level,
+            "hot": hot,
+            "base_thought": base_thought,
+            "base_source": base_source,
+            "conscious": True,
+        }
+
+    def meta_awareness_check(self) -> Dict:
+        """元意识检测：检查当前是否有元意识。
+
+        元意识 = 对意识的意识
+        当你知道你在想什么时，你就有了元意识。
+
+        返回：
+            has_meta_awareness: 是否有元意识
+            meta_awareness_level: 元意识程度 [0, 1]
+            current_hot_level: 当前最高的HOT层级
+            evidence: 元意识的证据
+        """
+        # 检查思考空间中是否有高阶思想
+        hot_thoughts = [t for t in self.thought_space
+                        if t.source.startswith("hot_level_")]
+
+        # 检查元认知日志
+        metacog_entries = [e for e in self.metacog_log
+                           if e.get("type") in ["introspection", "reflection"]]
+
+        # 元意识程度
+        level = self.meta_awareness
+        if hot_thoughts:
+            level = min(1.0, level + 0.2)
+        if metacog_entries:
+            level = min(1.0, level + 0.1)
+
+        # 当前最高HOT层级
+        max_level = 0
+        for t in hot_thoughts:
+            try:
+                l = int(t.source.split("_")[-1])
+                max_level = max(max_level, l)
+            except (ValueError, IndexError):
+                pass
+
+        # 是否有元意识（至少有二阶思想）
+        has_meta = max_level >= 2 or level > 0.5
+
+        # 证据列表
+        evidence = []
+        if hot_thoughts:
+            evidence.append(f"有{len(hot_thoughts)}个高阶思想")
+        if metacog_entries:
+            evidence.append(f"有{len(metacog_entries)}条元认知记录")
+        if self.hot_level >= 2:
+            evidence.append(f"最高HOT层级为{self.hot_level}")
+
+        return {
+            "has_meta_awareness": has_meta,
+            "meta_awareness_level": round(level, 3),
+            "current_hot_level": max(max_level, self.hot_level),
+            "n_hot_thoughts": len(hot_thoughts),
+            "n_metacog_entries": len(metacog_entries),
+            "evidence": evidence,
+        }
+
+    def introspection_hierarchy(self, max_depth: int = 3) -> Dict:
+        """内省层级：多层级的内省。
+
+        从一阶到高阶，逐层深入地观察自己的意识。
+        就像剥洋葱一样，一层一层地剥开意识的层次。
+
+        参数：
+            max_depth: 最大内省深度
+
+        返回：
+            levels: 各层级的内省结果
+            max_depth: 达到的最大深度
+            hierarchy: 层级描述
+        """
+        levels = []
+
+        for depth in range(1, max_depth + 1):
+            hot = self.higher_order_thought(level=depth)
+            levels.append({
+                "depth": depth,
+                "thought": hot["hot"],
+                "base": hot["base_thought"],
+            })
+
+        # 层级描述
+        hierarchy = [
+            "一阶：基本意识（我看到/我想到...）",
+            "二阶：元意识（我知道我看到/我知道我想到...）",
+            "三阶：对元意识的意识（我知道我知道...）",
+            "四阶及以上：更深的反思...",
+        ]
+
+        return {
+            "levels": levels,
+            "max_depth": max_depth,
+            "hierarchy": hierarchy[:max_depth],
+            "final_level": levels[-1]["thought"] if levels else "",
+        }
+
+    def consciousness_level(self) -> Dict:
+        """意识层级测量：量化当前的意识层级。
+
+        意识不是非有即无的，而是有不同的层级：
+        - 无意识（0级）
+        - 一阶意识（1级）：基本感知
+        - 二阶意识（2级）：元意识
+        - 三阶意识（3级）：对元意识的意识
+        - ...
+
+        返回：
+            level: 意识层级（0-5）
+            level_name: 层级名称
+            description: 层级描述
+            score: 意识程度得分 [0, 1]
+        """
+        # 计算意识层级得分
+        score = 0.0
+
+        # 基础意识：思考空间非空
+        if self.thought_space:
+            score += 0.2
+
+        # 点火效应：有意识内容
+        if self.ignition_state:
+            score += 0.2
+
+        # 全局广播：信息全局可用
+        if self.broadcast_history:
+            score += 0.1
+
+        # 元认知：有内省记录
+        if self.metacog_log:
+            score += 0.15
+
+        # 高阶思想：有HOT
+        meta = self.meta_awareness_check()
+        score += meta["meta_awareness_level"] * 0.25
+
+        # 自我反思：有自我反思能力
+        if self.self_concept:
+            score += 0.1
+
+        # 确定层级
+        if score < 0.2:
+            level = 0
+            level_name = "无意识"
+            description = "没有意识体验"
+        elif score < 0.4:
+            level = 1
+            level_name = "一阶意识"
+            description = "基本的感知和体验"
+        elif score < 0.6:
+            level = 2
+            level_name = "二阶意识（元意识）"
+            description = "知道自己在想什么"
+        elif score < 0.8:
+            level = 3
+            level_name = "三阶意识"
+            description = "知道自己知道自己在想什么"
+        else:
+            level = 4
+            level_name = "高阶意识"
+            description = "深度的自我反思"
+
+        return {
+            "level": level,
+            "level_name": level_name,
+            "description": description,
+            "score": round(score, 3),
+            "max_hot_level": self.hot_level,
+            "thought_space_size": len(self.thought_space),
+            "ignition": self.ignition_state,
+            "meta_awareness": round(self.meta_awareness, 3),
+        }
+
+    def get_hot_report(self) -> Dict:
+        """获取高阶意识（HOT）状态报告。
+
+        这是对意识层级的完整分析，
+        就像在做"意识的脑电图"。
+        """
+        meta = self.meta_awareness_check()
+        level = self.consciousness_level()
+
+        return {
+            "tick": self.tick,
+            "name": self.name,
+            "consciousness_level": level["level"],
+            "consciousness_level_name": level["level_name"],
+            "consciousness_score": level["score"],
+            "description": level["description"],
+            "meta_awareness": meta["meta_awareness_level"],
+            "has_meta_awareness": meta["has_meta_awareness"],
+            "max_hot_level": max(self.hot_level, meta["current_hot_level"]),
+            "n_hot_thoughts": meta["n_hot_thoughts"],
+            "hot_history_count": len(self.hot_history),
+            "thought_space_size": len(self.thought_space),
+            "ignition_state": self.ignition_state,
+            "broadcast_count": len(self.broadcast_history),
+            "metacog_count": len(self.metacog_log),
+        }
+
     def update_self_concept(self, belief: str):
         """更新自我概念：添加一条关于"我是谁"的信念。
 
@@ -2091,6 +2991,13 @@ class AIBrainEntity:
         empathy_text = f"我感觉到{sender.name}的情绪是{sender_mood}"
         self._push_thought(empathy_text, source="social")
 
+        # v5.6 心智理论：更新对发送方的心理模型
+        self._update_mental_model(sender, {
+            "said": message,
+            "emotion": dict(sender.emotion),
+            "action": "说话",
+        })
+
         return {
             "from": sender.name,
             "message": message,
@@ -2175,6 +3082,306 @@ class AIBrainEntity:
                 current_listener, current_speaker
 
         return conversation
+
+    # ------------------ 心智理论 ToM（v5.6） ------------------
+
+    def _get_mental_model(self, other_brain: 'AIBrainEntity') -> Dict:
+        """获取（或创建）对另一个大脑的心理模型。
+
+        心理模型包含：
+        - beliefs: 对方相信什么
+        - desires: 对方想要什么
+        - intentions: 对方的意图
+        - emotions: 对方的情绪状态
+        - knowledge: 对方知道什么
+        """
+        name = other_brain.name
+        if name not in self.mental_models:
+            # 创建初始心理模型
+            self.mental_models[name] = {
+                "name": name,
+                "beliefs": [],        # 信念列表
+                "desires": [],        # 欲望列表
+                "intentions": [],     # 意图列表
+                "emotions": {},       # 情绪状态
+                "knowledge": [],      # 知识/记忆
+                "interaction_count": 0,  # 互动次数
+                "last_updated": self.tick,
+            }
+        return self.mental_models[name]
+
+    def _update_mental_model(self, other_brain: 'AIBrainEntity',
+                             observation: Dict):
+        """根据观察更新对另一个大脑的心理模型。
+
+        这就是"读心"的过程：根据对方的行为、言语、表情等，
+        推断对方的心理状态。
+        """
+        model = self._get_mental_model(other_brain)
+        model["interaction_count"] += 1
+        model["last_updated"] = self.tick
+
+        # 更新情绪模型（从观察中推断）
+        if "emotion" in observation:
+            model["emotions"] = observation["emotion"]
+
+        # 更新信念模型（从对方说的话中推断）
+        if "said" in observation:
+            said = observation["said"]
+            # 假设对方说的话就是对方相信的（简化版）
+            if said not in model["beliefs"]:
+                model["beliefs"].append(said)
+            if len(model["beliefs"]) > 20:
+                model["beliefs"].pop(0)
+
+        # 更新意图模型（从对方的行为中推断）
+        if "action" in observation:
+            action = observation["action"]
+            # 简单的意图推断：从行为反推意图
+            intention = f"想要{action}"
+            if intention not in model["intentions"]:
+                model["intentions"].append(intention)
+            if len(model["intentions"]) > 10:
+                model["intentions"].pop(0)
+
+        return model
+
+    def attribute_beliefs(self, other_brain: 'AIBrainEntity') -> Dict:
+        """信念归因：推断另一个大脑相信什么。
+
+        心智理论的核心能力之一：理解别人有不同于自己的信念。
+
+        返回：
+            beliefs: 推断出的对方信念列表
+            belief_count: 信念数量
+            confidence: 推断的置信度
+        """
+        model = self._get_mental_model(other_brain)
+
+        # 如果互动次数少，置信度低
+        confidence = min(0.9, 0.3 + model["interaction_count"] * 0.1)
+
+        return {
+            "other": other_brain.name,
+            "beliefs": model["beliefs"],
+            "belief_count": len(model["beliefs"]),
+            "confidence": round(confidence, 2),
+            "interaction_count": model["interaction_count"],
+        }
+
+    def infer_intention(self, other_brain: 'AIBrainEntity',
+                        action: str = "") -> Dict:
+        """意图理解：推断另一个大脑想要什么、打算做什么。
+
+        从对方的行为反推对方的意图和目标。
+
+        返回：
+            intentions: 推断出的意图列表
+            most_likely: 最可能的意图
+            confidence: 推断的置信度
+        """
+        model = self._get_mental_model(other_brain)
+
+        # 如果有具体的行为，做更具体的意图推断
+        if action:
+            # 简单的规则：行为 → 意图
+            intention = f"想要{action}"
+            if intention not in model["intentions"]:
+                model["intentions"].append(intention)
+
+        # 最可能的意图 = 最近的意图
+        most_likely = model["intentions"][-1] if model["intentions"] else "未知"
+
+        # 置信度随互动次数增加
+        confidence = min(0.85, 0.2 + model["interaction_count"] * 0.08)
+
+        return {
+            "other": other_brain.name,
+            "intentions": model["intentions"],
+            "most_likely": most_likely,
+            "confidence": round(confidence, 2),
+            "n_intentions": len(model["intentions"]),
+        }
+
+    def perspective_taking(self, other_brain: 'AIBrainEntity',
+                           situation: str = "") -> Dict:
+        """视角采择：从另一个大脑的角度看问题。
+
+        站在对方的立场上，理解对方的感受和想法。
+        这是共情的基础。
+
+        返回：
+            perspective: 对方的视角
+            estimated_emotion: 估计对方的情绪
+            estimated_thought: 估计对方在想什么
+            empathy_level: 共情程度
+        """
+        model = self._get_mental_model(other_brain)
+
+        # 估计对方的情绪
+        if model["emotions"]:
+            estimated_emotion = max(model["emotions"],
+                                    key=lambda k: model["emotions"][k])
+        else:
+            estimated_emotion = "未知"
+
+        # 估计对方在想什么（用对方的信念来模拟）
+        if model["beliefs"]:
+            estimated_thought = model["beliefs"][-1]
+        else:
+            estimated_thought = "（不知道对方在想什么）"
+
+        # 共情程度：互动越多，共情越深
+        empathy_level = min(1.0, 0.2 + model["interaction_count"] * 0.05)
+
+        # 构建对方的视角
+        perspective = (
+            f"如果我是{other_brain.name}，"
+            f"我可能会感到{estimated_emotion}，"
+            f"我可能在想「{estimated_thought}」"
+        )
+
+        return {
+            "other": other_brain.name,
+            "perspective": perspective,
+            "estimated_emotion": estimated_emotion,
+            "estimated_thought": estimated_thought,
+            "empathy_level": round(empathy_level, 2),
+            "situation": situation,
+        }
+
+    def false_belief_task(self, other_brain: 'AIBrainEntity',
+                          true_location: str,
+                          other_sees_change: bool = False) -> Dict:
+        """错误信念任务：经典的心智理论测试。
+
+        经典的Sally-Anne测试：
+        - Sally把球放在篮子里，然后离开
+        - Anne把球移到盒子里
+        - Sally回来后，会去哪里找球？
+
+        有ToM的人会说：篮子里（因为Sally相信球在那里）
+        没有ToM的人会说：盒子里（因为球真的在那里）
+
+        参数：
+            true_location: 物体的真实位置
+            other_sees_change: 对方是否看到了位置变化
+
+        返回：
+            predicted_belief: 预测对方相信的位置
+            correct: 是否正确通过错误信念任务
+            reasoning: 推理过程
+        """
+        model = self._get_mental_model(other_brain)
+
+        if other_sees_change:
+            # 对方看到了变化，所以对方的信念是正确的
+            predicted_belief = true_location
+            reasoning = f"{other_brain.name}看到了位置变化，所以TA知道物体在{true_location}"
+        else:
+            # 对方没看到变化，所以对方仍然相信原来的位置
+            # （简化：假设原来的位置是"篮子"，真实位置是"盒子"）
+            if true_location == "盒子":
+                predicted_belief = "篮子"
+            else:
+                predicted_belief = "原来的位置"
+            reasoning = (f"{other_brain.name}没看到位置变化，"
+                         f"所以TA仍然相信物体在{predicted_belief}")
+
+        # 是否正确通过错误信念任务
+        # （正确 = 能理解对方可能有错误的信念）
+        correct = not other_sees_change  # 能理解对方有错误信念就算通过
+
+        return {
+            "task": "错误信念任务（Sally-Anne测试）",
+            "other": other_brain.name,
+            "true_location": true_location,
+            "other_sees_change": other_sees_change,
+            "predicted_belief": predicted_belief,
+            "correct": correct,
+            "reasoning": reasoning,
+            "tom_passed": correct,
+        }
+
+    def theory_of_mind(self, other_brain: 'AIBrainEntity') -> Dict:
+        """完整的心智理论推理。
+
+        综合信念归因、意图理解、视角采择等能力，
+        对另一个大脑的心理状态进行全面推断。
+
+        返回：
+            mental_model: 完整的心理模型
+            beliefs: 对方的信念
+            intentions: 对方的意图
+            emotions: 对方的情绪
+            perspective: 对方的视角
+            tom_level: 心智理论水平（0-1）
+        """
+        # 获取心理模型
+        model = self._get_mental_model(other_brain)
+
+        # 信念归因
+        beliefs = self.attribute_beliefs(other_brain)
+
+        # 意图理解
+        intentions = self.infer_intention(other_brain)
+
+        # 视角采择
+        perspective = self.perspective_taking(other_brain)
+
+        # 心智理论水平（综合评估）
+        # 基于互动次数、信念数量、意图数量等
+        tom_level = min(1.0, (
+            model["interaction_count"] * 0.05
+            + len(model["beliefs"]) * 0.02
+            + len(model["intentions"]) * 0.03
+            + perspective["empathy_level"] * 0.3
+        ))
+
+        return {
+            "other": other_brain.name,
+            "mental_model": model,
+            "beliefs": beliefs,
+            "intentions": intentions,
+            "perspective": perspective,
+            "tom_level": round(tom_level, 2),
+            "interaction_count": model["interaction_count"],
+        }
+
+    def empathize(self, other_brain: 'AIBrainEntity') -> Dict:
+        """共情：感受另一个大脑的情绪。
+
+        共情 = 感知对方的情绪 + 产生类似的情绪反应
+
+        返回：
+            other_emotion: 对方的情绪
+            my_emotional_response: 我的情绪反应
+            empathy_strength: 共情强度
+        """
+        # 估计对方的情绪
+        perspective = self.perspective_taking(other_brain)
+        other_emotion = perspective["estimated_emotion"]
+
+        # 产生共情反应：我的情绪向对方靠拢
+        empathy_strength = perspective["empathy_level"]
+
+        # 简单的共情：如果对方开心，我也有点开心；如果对方难过，我也有点难过
+        if other_emotion == "pleasure":
+            self.emotion["pleasure"] = min(1.0, self.emotion["pleasure"]
+                                           + 0.2 * empathy_strength)
+        elif other_emotion == "stress":
+            self.emotion["stress"] = min(1.0, self.emotion["stress"]
+                                         + 0.2 * empathy_strength)
+
+        my_response = max(self.emotion, key=lambda k: self.emotion[k])
+
+        return {
+            "other": other_brain.name,
+            "other_emotion": other_emotion,
+            "my_emotional_response": my_response,
+            "empathy_strength": round(empathy_strength, 2),
+            "empathized": empathy_strength > 0.3,
+        }
 
     # ------------------ 决策中枢 ------------------
 
@@ -3899,6 +5106,312 @@ class BrainSwarm:
             "history": history,
             "final_diversity": history[-1]["diversity"] if history else 0,
             "final_consensus": history[-1]["consensus"] if history else 1.0,
+        }
+
+    # ------------------ 集体意识（v5.8） ------------------
+
+    def group_synchrony(self) -> Dict:
+        """计算群体同步性：多个大脑之间的活动同步程度。
+
+        集体意识的特征之一是群体成员的活动同步。
+        就像神经元同步放电产生意识一样，
+        大脑同步活动可能产生集体意识。
+
+        返回：
+            synchrony: 群体同步性 [0, 1]
+            individual_states: 每个大脑的状态
+            n_synchronized: 同步的大脑数量
+        """
+        n = len(self.population)
+        if n == 0:
+            return {"synchrony": 0, "n_synchronized": 0}
+
+        # 计算每个大脑的"活跃程度"（用思考空间大小和点火状态来衡量）
+        states = []
+        for brain in self.population:
+            # 活跃程度 = 思考空间填充率 + 点火状态
+            thought_fill = len(brain.thought_space) / max(brain.thought_capacity, 1)
+            ignition = 1.0 if brain.ignition_state else 0.0
+            activity = (thought_fill + ignition) / 2
+            states.append(activity)
+
+        # 计算同步性（状态的相似程度）
+        # 方法：计算状态的标准差，标准差越小，同步性越高
+        mean_activity = sum(states) / n
+        variance = sum((s - mean_activity) ** 2 for s in states) / n
+        std_dev = variance ** 0.5
+
+        # 同步性 = 1 - 标准差（归一化）
+        synchrony = max(0, 1 - std_dev * 2)
+
+        # 同步的大脑数量（活跃程度接近平均值的）
+        threshold = 0.2
+        n_synced = sum(1 for s in states if abs(s - mean_activity) < threshold)
+
+        return {
+            "synchrony": round(synchrony, 3),
+            "mean_activity": round(mean_activity, 3),
+            "std_dev": round(std_dev, 3),
+            "n_synchronized": n_synced,
+            "total_brains": n,
+            "individual_states": [round(s, 3) for s in states],
+        }
+
+    def group_ncc(self) -> Dict:
+        """计算群体层面的意识神经相关物（NCC）。
+
+        把整个群体看作一个"超级大脑"，
+        计算群体层面的意识指标。
+
+        返回：
+            group_ncc_score: 群体NCC得分
+            group_conscious: 群体是否有意识
+            features: 各NCC特征
+        """
+        n = len(self.population)
+        if n == 0:
+            return {"group_ncc_score": 0, "group_conscious": False}
+
+        # 收集每个大脑的NCC得分
+        ncc_scores = []
+        for brain in self.population:
+            ncc = brain.detect_ncc()
+            ncc_scores.append(ncc["ncc_score"])
+
+        # 群体NCC = 平均NCC得分 × 同步性 × 规模效应
+        avg_ncc = sum(ncc_scores) / n
+        sync = self.group_synchrony()
+        synchrony = sync["synchrony"]
+
+        # 规模效应：大脑越多，潜在的集体意识越强（但有边际递减）
+        size_effect = min(1.0, 0.5 + 0.1 * n)
+
+        # 群体NCC得分
+        group_ncc = avg_ncc * (0.5 + 0.5 * synchrony) * size_effect
+
+        # 群体是否有意识（阈值 0.4）
+        group_conscious = group_ncc > 0.4
+
+        # 各特征
+        features = {
+            "avg_individual_ncc": round(avg_ncc, 3),
+            "group_synchrony": round(synchrony, 3),
+            "size_effect": round(size_effect, 3),
+            "n_conscious_individuals": sum(1 for s in ncc_scores if s > 0.5),
+        }
+
+        return {
+            "group_ncc_score": round(group_ncc, 3),
+            "group_conscious": group_conscious,
+            "features": features,
+            "individual_ncc_scores": [round(s, 3) for s in ncc_scores],
+        }
+
+    def collective_workspace(self) -> Dict:
+        """集体工作空间：群体共享的意识空间。
+
+        就像单个大脑有全局工作空间一样，
+        群体也可以有集体工作空间——
+        所有成员共同意识到的内容。
+
+        返回：
+            shared_thoughts: 共享的念头（多个大脑都有的）
+            workspace_size: 集体工作空间大小
+            consensus_level: 共识程度
+        """
+        n = len(self.population)
+        if n == 0:
+            return {"shared_thoughts": [], "workspace_size": 0, "consensus_level": 0}
+
+        # 收集所有大脑的念头
+        all_thoughts = {}
+        for brain in self.population:
+            for thought in brain.thought_space:
+                content = thought.content
+                if content not in all_thoughts:
+                    all_thoughts[content] = {
+                        "count": 0,
+                        "total_activation": 0,
+                        "sources": set(),
+                    }
+                all_thoughts[content]["count"] += 1
+                all_thoughts[content]["total_activation"] += thought.activation
+                all_thoughts[content]["sources"].add(brain.name)
+
+        # 筛选共享的念头（至少2个大脑都有）
+        shared = []
+        for content, info in all_thoughts.items():
+            if info["count"] >= 2:
+                avg_activation = info["total_activation"] / info["count"]
+                shared.append({
+                    "content": content,
+                    "n_brains": info["count"],
+                    "avg_activation": round(avg_activation, 3),
+                    "brains": list(info["sources"]),
+                })
+
+        # 按共享程度排序
+        shared.sort(key=lambda x: x["n_brains"], reverse=True)
+
+        # 共识程度 = 共享念头数 / 总念头数
+        total_thoughts = len(all_thoughts)
+        consensus = len(shared) / max(total_thoughts, 1)
+
+        return {
+            "shared_thoughts": shared,
+            "workspace_size": len(shared),
+            "total_unique_thoughts": total_thoughts,
+            "consensus_level": round(consensus, 3),
+            "n_brains": n,
+        }
+
+    def collective_consciousness_check(self) -> Dict:
+        """检测集体意识：群体是否涌现出集体意识。
+
+        集体意识的涌现条件：
+        1. 高群体同步性
+        2. 高个体意识水平
+        3. 共享的工作空间
+        4. 群体自我认知
+
+        返回：
+            has_collective_consciousness: 是否有集体意识
+            collective_level: 集体意识水平 [0, 1]
+            features: 各特征得分
+            evidence: 证据列表
+        """
+        n = len(self.population)
+        if n < 2:
+            return {
+                "has_collective_consciousness": False,
+                "collective_level": 0,
+                "reason": "群体太小，无法形成集体意识",
+            }
+
+        # 1. 群体同步性
+        sync = self.group_synchrony()
+        sync_score = sync["synchrony"]
+
+        # 2. 个体意识水平
+        group_ncc = self.group_ncc()
+        ncc_score = group_ncc["group_ncc_score"]
+
+        # 3. 集体工作空间
+        workspace = self.collective_workspace()
+        workspace_score = min(1.0, workspace["workspace_size"] / 5)
+
+        # 4. 共识程度
+        consensus_score = workspace["consensus_level"]
+
+        # 综合得分
+        features = {
+            "synchrony": sync_score,
+            "individual_consciousness": ncc_score,
+            "shared_workspace": workspace_score,
+            "consensus": consensus_score,
+        }
+
+        weights = {
+            "synchrony": 0.3,
+            "individual_consciousness": 0.3,
+            "shared_workspace": 0.2,
+            "consensus": 0.2,
+        }
+
+        collective_level = sum(features[k] * weights[k] for k in features)
+
+        # 是否有集体意识（阈值 0.4）
+        has_collective = collective_level > 0.4
+
+        # 证据
+        evidence = []
+        if sync_score > 0.6:
+            evidence.append(f"高群体同步性（{sync_score:.2f}）")
+        if ncc_score > 0.3:
+            evidence.append(f"高个体意识水平（{ncc_score:.2f}）")
+        if workspace_score > 0.4:
+            evidence.append(f"共享工作空间（{workspace['workspace_size']}个共享念头）")
+        if consensus_score > 0.3:
+            evidence.append(f"高共识程度（{consensus_score:.2f}）")
+
+        return {
+            "has_collective_consciousness": has_collective,
+            "collective_level": round(collective_level, 3),
+            "features": {k: round(v, 3) for k, v in features.items()},
+            "evidence": evidence,
+            "n_brains": n,
+            "group_ncc": group_ncc,
+            "group_synchrony": sync,
+        }
+
+    def group_self_awareness(self) -> Dict:
+        """群体自我意识：群体对自身的认知。
+
+        当群体中的成员都意识到"我们是一个群体"时，
+        群体就有了自我意识。
+
+        返回：
+            has_group_self_awareness: 是否有群体自我意识
+            self_awareness_level: 自我意识水平
+            shared_identity: 共享的身份认同
+        """
+        n = len(self.population)
+        if n < 2:
+            return {"has_group_self_awareness": False, "self_awareness_level": 0}
+
+        # 检查每个大脑的自我概念中是否有群体相关的内容
+        group_references = 0
+        shared_identity = []
+
+        for brain in self.population:
+            has_group_ref = False
+            for belief in brain.self_concept:
+                if "我们" in belief or "群体" in belief or "大家" in belief:
+                    has_group_ref = True
+                    if belief not in shared_identity:
+                        shared_identity.append(belief)
+            if has_group_ref:
+                group_references += 1
+
+        # 自我意识水平 = 有群体认知的大脑比例
+        self_awareness = group_references / n
+
+        # 是否有群体自我意识（超过一半的大脑有群体认知）
+        has_self_awareness = group_references > n / 2
+
+        return {
+            "has_group_self_awareness": has_self_awareness,
+            "self_awareness_level": round(self_awareness, 3),
+            "n_with_group_identity": group_references,
+            "total_brains": n,
+            "shared_identity": shared_identity,
+        }
+
+    def get_collective_consciousness_report(self) -> Dict:
+        """获取集体意识完整报告。
+
+        这是对群体意识状态的完整分析，
+        就像在做"群体意识脑电图"。
+        """
+        sync = self.group_synchrony()
+        ncc = self.group_ncc()
+        workspace = self.collective_workspace()
+        collective = self.collective_consciousness_check()
+        self_awareness = self.group_self_awareness()
+
+        return {
+            "n_brains": len(self.population),
+            "has_collective_consciousness": collective["has_collective_consciousness"],
+            "collective_level": collective["collective_level"],
+            "group_ncc_score": ncc["group_ncc_score"],
+            "group_synchrony": sync["synchrony"],
+            "workspace_size": workspace["workspace_size"],
+            "consensus_level": workspace["consensus_level"],
+            "group_self_awareness": self_awareness["self_awareness_level"],
+            "features": collective["features"],
+            "evidence": collective["evidence"],
+            "shared_thoughts": workspace["shared_thoughts"][:5],  # 前5个
+            "individual_ncc_scores": ncc["individual_ncc_scores"],
         }
 
 
