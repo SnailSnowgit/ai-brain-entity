@@ -14,6 +14,15 @@ import numpy as np
 
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
+# 测试环境离线化：已装 transformers/whisper 时也不触发网络下载——
+# CLIP 走 HF_HUB_OFFLINE 立即失败回退伪 embedding；
+# Whisper 预置假缓存跳过 145MB 下载（无 ffmpeg 时随后也立即回退伪 embedding）。
+os.environ.setdefault("HF_HUB_OFFLINE", "1")
+
+import ai_brain_entity as _abe
+if _abe._WHISPER_CACHE is None:
+    _abe._WHISPER_CACHE = False
+
 from ai_brain_entity import (
     AIBrainEntity, BrainSwarm, BrainMemory, ThoughtItem, LearnableProjection,
     encode_image, encode_audio,
@@ -221,6 +230,52 @@ class TestCustomMultimodal(unittest.TestCase):
         # 也支持按注册名指定
         register_image_encoder(lambda p: [3.0] * 4, name="other")
         self.assertEqual(encode_image(path, encoder="other"), [3.0] * 4)
+
+    def test_clip_output_flattened(self):
+        """CLIP 返回多维张量/ModelOutput 时统一展平为一维 float 列表"""
+        try:
+            from PIL import Image
+        except ImportError:
+            self.skipTest("PIL 不可用")
+
+        class _FakeTensor:
+            def __init__(self, arr):
+                self._arr = np.asarray(arr, dtype=float)
+
+            def detach(self):
+                return self
+
+            def cpu(self):
+                return self
+
+            def numpy(self):
+                return self._arr
+
+        class _FakeClipModel:
+            def get_image_features(self, **kw):
+                # 模拟新版 transformers 的多维返回 (1, 1, 8)
+                return _FakeTensor(np.arange(8).reshape(1, 1, 8))
+
+        class _FakeProcessor:
+            def __call__(self, **kw):
+                return {}
+
+        import tempfile
+        fd, path = tempfile.mkstemp(suffix=".png")
+        os.close(fd)
+        Image.new("RGB", (8, 8), (200, 30, 30)).save(path)
+        self.addCleanup(os.remove, path)
+
+        m = self._module
+        saved_cache = m._CLIP_CACHE
+        try:
+            m._CLIP_CACHE = (_FakeClipModel(), _FakeProcessor())
+            vec = encode_image(path)
+        finally:
+            m._CLIP_CACHE = saved_cache
+        self.assertEqual(vec, [float(i) for i in range(8)])
+        self.assertTrue(all(isinstance(v, float) for v in vec))
+
 
     def test_unregister_falls_back_to_pseudo(self):
         """注销默认编码器后回落到内置链（无依赖环境 = 伪 embedding）"""

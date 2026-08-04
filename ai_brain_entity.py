@@ -295,10 +295,17 @@ def encode_image(path: str, dim: int = 512,
                 CLIPProcessor.from_pretrained(_CLIP_MODEL_NAME),
             )
         from PIL import Image
+        import numpy as np
         model, processor = _CLIP_CACHE
         inputs = processor(images=Image.open(path), return_tensors="pt")
         feats = model.get_image_features(**inputs)
-        return feats[0].detach().cpu().numpy().tolist()
+        # 兼容：新版 transformers 可能返回 ModelOutput 或多维张量，
+        # 统一展平为一维 float 列表（下游投影/重采样要求扁平数值序列）
+        arr = getattr(feats, "pooler_output", feats)
+        if not hasattr(arr, "detach"):
+            arr = feats
+        vec = np.asarray(arr.detach().cpu().numpy(), dtype=float).reshape(-1)
+        return vec.tolist()
     except Exception:
         return _file_pseudo_embedding(path, dim)
 
