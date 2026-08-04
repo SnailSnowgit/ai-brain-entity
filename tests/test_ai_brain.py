@@ -30,6 +30,7 @@ from ai_brain_entity import (
     unregister_image_encoder, unregister_audio_encoder,
     list_encoders,
     make_robot_executor, make_api_executor,
+    make_function_executor, make_file_executor,
 )
 
 
@@ -1365,6 +1366,139 @@ class TestThoughtSystem(unittest.TestCase):
             self.assertIn(key, first)
         self.assertEqual(first["content"], "火焰是危险的")
         self.assertEqual(first["source"], "external")
+
+
+class TestIntentVerbs(unittest.TestCase):
+    """v5.1 动作与决策扩展：8 verb 动作空间 / 深思熟虑 / 实用执行器"""
+
+    def setUp(self):
+        self.brain = AIBrainEntity("Actor", seed=1)
+
+    def test_intent_verbs_table(self):
+        """意图动词表覆盖 8 个 verb，channel 取值合法"""
+        self.assertEqual(len(AIBrainEntity.INTENT_VERBS), 8)
+        for v in ("respond", "acknowledge", "observe",
+                  "ask", "retrieve", "plan", "execute", "wait"):
+            self.assertIn(v, AIBrainEntity.INTENT_VERBS)
+            self.assertIn(AIBrainEntity.INTENT_VERBS[v]["channel"],
+                          ("external", "internal"))
+
+    def test_verb_values_cover_all_intent_verbs(self):
+        """技能价值表初始化覆盖全部 8 个 verb（Q=0）"""
+        self.assertEqual(len(self.brain.verb_values), 8)
+        self.assertTrue(all(q == 0.0
+                            for q in self.brain.verb_values.values()))
+
+    def test_decide_action_default_unchanged(self):
+        """默认决策行为不变：无理由链，verb 限于脉冲三动作"""
+        out = self.brain.decide_action("火焰")
+        self.assertNotIn("rationale", out)
+        self.assertIn(out["verb"], ("respond", "acknowledge", "observe"))
+
+    def test_deliberate_structure(self):
+        """深思熟虑决策带 rationale/base_verb/q_values/novelty"""
+        out = self.brain.decide_action("火焰", deliberate=True)
+        self.assertIn("rationale", out)
+        self.assertIn("base_verb", out)
+        self.assertIn("q_values", out)
+        self.assertIn("novelty", out)
+        self.assertEqual(len(out["q_values"]), 8)
+        self.assertTrue(out["rationale"])
+
+    def test_deliberate_ask_heuristic(self):
+        """记忆未命中且新奇度 >0.5 → 提问澄清"""
+        self.brain.sensory_input("从未见过的紫色星星")
+        out = self.brain.decide_action("从未见过的紫色星星",
+                                       deliberate=True)
+        self.assertEqual(out["verb"], "ask")
+        self.assertEqual(out["base_verb"], "observe")  # 无脉冲时对照
+        self.assertTrue(any("提问澄清" in r for r in out["rationale"]))
+
+    def test_deliberate_retrieve_heuristic(self):
+        """多条记忆同时命中 → 主动检索回忆"""
+        for _ in range(3):
+            self.brain.sensory_input("火焰可以取暖")
+            self.brain.sensory_input("危险需要远离")
+        self.brain.sensory_input("无关的缓冲")
+        out = self.brain.decide_action("火焰 危险", deliberate=True)
+        self.assertGreaterEqual(len(out["recalled"]), 2)
+        self.assertEqual(out["verb"], "retrieve")
+
+    def test_deliberate_policy_overrides_verb(self):
+        """policy 非空时由习得 Q 值选 verb"""
+        for _ in range(10):
+            self.brain.learn_skill("ask", 0.8)
+        out = self.brain.decide_action("火焰", deliberate=True,
+                                       policy="greedy")
+        self.assertEqual(out["verb"], "ask")
+        self.assertTrue(any("greedy" in r for r in out["rationale"]))
+
+    def test_deliberate_plan_pushes_goal_thought(self):
+        """plan verb 把规划目标压入思考空间"""
+        for _ in range(10):
+            self.brain.learn_skill("plan", 0.9)
+        out = self.brain.decide_action("建造树屋", deliberate=True,
+                                       policy="greedy")
+        self.assertEqual(out["verb"], "plan")
+        self.assertTrue(any(t.content.startswith("规划目标")
+                            for t in self.brain.thought_space))
+
+    def test_express_uses_intent_verb_template(self):
+        """意图动词优先使用专属动词模板"""
+        for _ in range(10):
+            self.brain.learn_skill("ask", 0.8)
+        out = self.brain.express("神秘信号", deliberate=True,
+                                 policy="greedy")
+        self.assertEqual(out["action"]["verb"], "ask")
+        self.assertIn("？", out["utterance"])
+
+    def test_act_policy_extended_verb_keeps_action_name(self):
+        """act() 策略选到意图动词：保留脉冲动作名、覆盖 verb、正常执行"""
+        for _ in range(10):
+            self.brain.learn_skill("execute", 0.9)
+        self.brain.register_executor(
+            make_function_executor(lambda a: "done"), verb="execute")
+        out = self.brain.act("去开灯", policy="greedy")
+        self.assertEqual(out["action"]["verb"], "execute")
+        self.assertIn(out["action"]["action"],
+                      AIBrainEntity.ACTION_SPACE.keys())
+        self.assertIsNotNone(out["execution"])
+        self.assertTrue(out["execution"]["success"])
+
+    def test_make_function_executor(self):
+        """函数执行器：成功 +0.5 / 异常 -0.5 / 自定义奖励映射"""
+        ok = make_function_executor(lambda a: "结果")({})
+        self.assertTrue(ok["success"])
+        self.assertEqual(ok["reward"], 0.5)
+        self.assertEqual(ok["result"], "结果")
+
+        def boom(a):
+            raise RuntimeError("炸了")
+        bad = make_function_executor(boom)({})
+        self.assertFalse(bad["success"])
+        self.assertEqual(bad["reward"], -0.5)
+
+        custom = make_function_executor(
+            lambda a: 42, reward_of=lambda r: r / 100)({})
+        self.assertAlmostEqual(custom["reward"], 0.42)
+
+    def test_make_file_executor_writes_jsonl(self):
+        """文件执行器：动作以 JSONL 追加写入"""
+        import tempfile
+        fd, path = tempfile.mkstemp(suffix=".jsonl")
+        os.close(fd)
+        self.addCleanup(os.remove, path)
+        ex = make_file_executor(path)
+        r = ex({"verb": "respond", "intensity": 0.5})
+        self.assertTrue(r["success"])
+        self.assertEqual(r["reward"], 0.1)
+        with open(path, encoding="utf-8") as f:
+            lines = f.read().strip().splitlines()
+        self.assertEqual(len(lines), 1)
+        import json as _json
+        rec = _json.loads(lines[0])
+        self.assertEqual(rec["action"]["verb"], "respond")
+        self.assertIn("ts", rec)
 
 
 if __name__ == "__main__":

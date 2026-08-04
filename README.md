@@ -14,6 +14,8 @@ v4.7 情景记忆时间索引；v4.8 睡眠-清醒节律（SHY）；
 v4.9 好奇驱动探索——感知、学习、记忆、行动、社会、节律的全栈类脑仿真。
 v5.0 思考体系：思考空间（全局工作区）、思考记忆（think 固化）、
 思考感官（introspect 内感觉与元认知日志）。
+v5.1 动作与决策扩展：意图动词 3→8（ask/retrieve/plan/execute/wait）、
+深思熟虑决策（带 rationale 理由链）、函数/文件执行器。
 
 ## 它是什么
 
@@ -60,6 +62,7 @@ v5.0 思考体系：思考空间（全局工作区）、思考记忆（think 固
 | **睡眠节律** | 记忆重放+SHY | `sleep()`：离线重放固化弱记忆，突触等比缩放剪除弱连接（保留相对差异），压力恢复 |
 | **好奇驱动** | 新皮层-边缘系统 | `_assess_novelty()`：未命中率+|RPE| 双通路评估新奇度，当 tick 注意捕获；`effective_epsilon()` 新奇→多探索/熟悉→多利用；含习惯化（反复暴露新奇度衰减）与寻求刺激人格差异（SSS） |
 | **思考体系** | 全局工作区+内感觉 | `thought_space`：念头激活度衰减/容量 7±2；`think()` 念头回注网络、高激活固化进 STM；`introspect()` 感知自身脑活动并记元认知日志 |
+| **意图动词** | 基底节动作选择扩展 | v5.1：`INTENT_VERBS` 8 verb（ask/retrieve/plan/execute/wait）独立 Q 值，`decide_action(deliberate=True)` 带 rationale 理由链；`make_function_executor`/`make_file_executor` 实用执行器 |
 
 ## 依赖说明
 
@@ -77,7 +80,7 @@ python swarm.py              # 群体文化传递演示（定向传递+变异+�
 python experiments.py        # 复现实验 1-8（统一入口，生成 figures/ 与 data/ 结果）
 python encoder_status.py        # 观测台编码器面板数据（另两个导出器：brain_activity_trace / thought_chain_scenarios）
 python run_all.py               # 一键全流程：测试 → 演示 → 实验 → 观测数据（--quick 快速模式）
-python -m unittest discover tests  # 运行核心行为测试（116 项）
+python -m unittest discover tests  # 运行核心行为测试（129 项）
 ```
 
 ```python
@@ -256,6 +259,25 @@ entry = brain.introspect()
 # entry["text"] ≈ "我感到好奇，正在想「火焰是危险的」，脉冲活动3/7/1，记忆5/12"
 print(brain.status())   # 状态摘要新增"思考空间"行
 
+# ===== v5.1 动作与决策扩展：8 verb / 深思熟虑 / 实用执行器 =====
+# 意图动词（与脉冲强度动作正交）：ask 提问 / retrieve 检索 /
+# plan 规划 / execute 执行 / wait 观望，每个 verb 独立 Q 值
+out = brain.decide_action("从未见过的紫色星星", deliberate=True)
+# 记忆未命中且新奇度高 → verb="ask"，rationale 记录完整理由链
+for line in out["rationale"]:
+    print(line)
+
+# 策略化选择：Q 值学习后 greedy 恒选最优 verb
+for _ in range(10):
+    brain.learn_skill("ask", 0.8)
+out = brain.express("神秘信号", deliberate=True, policy="greedy")
+# utterance 走 ask 专属模板（"……能再多告诉我一些吗？"）
+
+# 实用执行器：任意函数一行包装 / 动作追加写 JSONL 对接外部系统
+from ai_brain_entity import make_function_executor, make_file_executor
+brain.register_executor(make_function_executor(my_fn), verb="execute")
+brain.register_executor(make_file_executor("actions.jsonl"), default=True)
+
 # 群体智能：文化传递
 swarm = BrainSwarm(["Alpha", "Beta", "Gamma"], seed=1)
 for _ in range(25):
@@ -288,6 +310,10 @@ clone = AIBrainEntity.load_dna("brain_dna.json", new_name="Brain-02")
 | `think(content, ticks)` | v5.0 主动思考：念头回注网络诱发联想，高激活念头固化进 STM（tag=thought） |
 | `introspect()` | v5.0 思考感官：感知自身情绪/脉冲/记忆/意识焦点，回注内省言语并记 `metacog_log` |
 | `top_thought()` | v5.0 当前意识焦点（激活度最高的念头） |
+| `decide_action(stim, deliberate=True, policy=...)` | v5.1 深思熟虑决策：rationale 理由链 + base_verb 对照 + q_values 快照；意图动词由策略/启发式裁定 |
+| `INTENT_VERBS` | v5.1 意图动词表（8 verb，含 channel 与描述），`verb_values` 覆盖全部 8 个 |
+| `make_function_executor(fn, reward_of)` | v5.1 任意函数一行包装为执行器（成功 +0.5 / 异常 -0.5 / 自定义奖励映射） |
+| `make_file_executor(path)` | v5.1 动作以 JSONL 追加写文件，最通用的外部系统对接口 |
 | `dump_dna()` / `from_dna(dna)` | DNA 字典级导出与重建（`save_dna`/`load_dna` 的内存版） |
 
 **群体文化工具**（`swarm.py` 实验层）
@@ -323,7 +349,7 @@ ai_brain/
 ├── encoder_status.py         # 多模态编码器状态导出（v3.1 自定义模型通路 → data/）
 ├── run_all.py                # 全流程统一入口（测试→演示→实验→观测数据，--quick 快速模式）
 ├── tests/                    # 核心行为测试（纯标准库 unittest）
-│   └── test_ai_brain.py      # 116 项：编码/可塑性/记忆/奖励/DNA/思考链/群体/多模态/v4.0~v5.0
+│   └── test_ai_brain.py      # 129 项：编码/可塑性/记忆/奖励/DNA/思考链/群体/多模态/v4.0~v5.1
 ├── docs/
 │   └── paper.md              # 学术论文（架构+实验+分析，含 v3.0 更新章节）
 ├── data/                     # 运行时数据产物

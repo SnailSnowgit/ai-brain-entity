@@ -118,6 +118,17 @@ v5.0 新增（思考体系）：
      （主导情绪/三层脉冲/记忆占用/思考空间顶部念头），生成内省言语
      并回注网络，同时记入 metacog_log 元认知日志
 
+v5.1 新增（动作与决策扩展）：
+  1. 动作空间 3 verb → 8 verb：INTENT_VERBS 意图动词表（ask 提问澄清 /
+     retrieve 检索回忆 / plan 规划分解 / execute 调用执行器 / wait 延迟
+     观望），与脉冲强度动作正交，每个 verb 独立 Q 值，由 select_verb()
+     策略化选择；配套专属语言模板
+  2. 深思熟虑决策：decide_action(deliberate=True) 决策前检索记忆、查
+     Q 值、看新奇度与资格迹，输出带 rationale 理由链的决策（base_verb
+     对照 + q_values 快照）；规划能力从"记忆+价值"涌现而非堆神经元
+  3. 实用执行器：make_function_executor() 任意函数一行包装；
+     make_file_executor() 动作追加写 JSONL——最通用的外部系统对接口
+
 类脑层级：
   1. 感官层神经元：接收外部原始信号（文字 / 任意 embedding 向量）
   2. 联想层神经元：特征提取、关联记忆匹配（含侧向循环连接）
@@ -529,6 +540,50 @@ def make_api_executor(endpoint: str, timeout: float = 5.0,
     return executor
 
 
+def make_function_executor(fn: Callable,
+                           reward_of: Optional[Callable] = None) -> Callable:
+    """函数执行器（v5.1）：把任意 Python 函数一行包装成执行器。
+
+    fn(action_dict) -> 任意结果；执行异常按失败处理（reward=-0.5）。
+    reward_of(result) -> float 自定义奖励映射；缺省成功恒 +0.5。
+    """
+    def executor(action: Dict) -> Dict:
+        try:
+            result = fn(action)
+        except Exception as e:
+            return {"success": False, "reward": -0.5,
+                    "detail": f"{type(e).__name__}: {e}"}
+        try:
+            reward = float(reward_of(result)) if reward_of else 0.5
+        except Exception:
+            reward = 0.5
+        return {"success": True, "reward": max(-1.0, min(1.0, reward)),
+                "detail": str(result)[:200], "result": result}
+
+    return executor
+
+
+def make_file_executor(path: str) -> Callable:
+    """文件执行器（v5.1）：动作以 JSONL 追加写入文件（一行一动作）。
+
+    最通用的外部系统对接口——任何语言/脚本都能读 JSONL 消费动作；
+    写文件成功恒 reward=+0.1（记录≠成效，奖励留给真正的结果回传），
+    IO 失败 reward=-0.5。也适合做动作审计日志。
+    """
+    def executor(action: Dict) -> Dict:
+        record = {"ts": time.time(), "action": action}
+        try:
+            with open(path, "a", encoding="utf-8") as f:
+                f.write(json.dumps(record, ensure_ascii=False) + "\n")
+        except OSError as e:
+            return {"success": False, "reward": -0.5,
+                    "detail": f"写入 {path} 失败：{e}"}
+        return {"success": True, "reward": 0.1,
+                "detail": f"动作已追加到 {path}"}
+
+    return executor
+
+
 # ===================== 大脑实体 =====================
 
 class AIBrainEntity:
@@ -599,8 +654,9 @@ class AIBrainEntity:
         self.default_executor: Optional[Callable] = None
 
         # v4.5 执行器技能学习：每个 verb 独立价值估计 Q(verb)
+        # v5.1：覆盖全部意图动词（INTENT_VERBS），含脉冲三动作
         self.verb_values: Dict[str, float] = {
-            cfg["verb"]: 0.0 for cfg in self.ACTION_SPACE.values()}
+            v: 0.0 for v in self.INTENT_VERBS}
         self.skill_alpha = 0.3      # 技能价值学习速率
         self.skill_epsilon = 0.15   # ε-greedy 探索率
         self.skill_temperature = 0.5  # softmax 温度
@@ -948,6 +1004,148 @@ class AIBrainEntity:
             currents = self._normalize_vector(vec, len(self.sense_layer))
         content = label or f"<vector[{len(vec)}]>"
         return self._perceive(content, currents, tag="sensory")
+
+    # ------------------ 多模态感知（v5.0 听觉/视觉） ------------------
+
+    def hear(self, audio_path: str, model_size: str = "base") -> Dict:
+        """听觉感知：音频文件 → 语音识别 → 文本进入大脑。
+
+        流程：
+        1. Whisper 语音识别，得到文本和音频特征
+        2. 文本作为"听到的内容"进入感知流水线
+        3. 音频特征向量注入感官层（双通道输入）
+        4. 感知内容标记 source=auditory 进入思考空间
+
+        返回:
+            text: 识别出的文本
+            language: 检测到的语言
+            output: 大脑的行为输出
+            novelty: 新奇度
+            emotion: 当前情绪
+        """
+        try:
+            import sys
+            enc_dir = os.path.join(os.path.dirname(os.path.abspath(__file__)),
+                                   "models", "encoders")
+            sys.path.insert(0, enc_dir)
+            from multimodal import encode_audio
+        except ImportError:
+            return {"text": "[听觉模块不可用]", "output": "",
+                    "error": "multimodal encoder not found"}
+
+        # 编码音频
+        result = encode_audio(audio_path)
+        text = result.get("text", "")
+        features = result.get("features", [])
+
+        if not text:
+            text = "[未识别到语音]"
+
+        # 文本通道：作为听到的内容进入感知
+        output = self.sensory_input(text)
+
+        # 特征通道：音频特征也注入感官层（增强感知）
+        if features:
+            self.sensory_input_vector(features, label=f"[音频特征]")
+
+        # 标记听觉来源（重新推入思考空间并标记来源）
+        self._push_thought(text, source="auditory")
+
+        return {
+            "text": text,
+            "language": result.get("language", "unknown"),
+            "duration": result.get("duration", 0),
+            "output": output,
+            "novelty": round(self.novelty, 3),
+            "emotion": dict(self.emotion),
+            "thought_space_size": len(self.thought_space),
+            "meta": result.get("meta", {}),
+        }
+
+    def see(self, image_path: str, model_name: str = "auto") -> Dict:
+        """视觉感知：图像文件 → 图像理解 → 描述文本进入大脑。
+
+        流程：
+        1. 视觉模型生成图像描述 / 提取特征
+        2. 描述文本作为"看到的内容"进入感知流水线
+        3. 图像特征向量注入感官层（双通道输入）
+        4. 感知内容标记 source=visual 进入思考空间
+
+        返回:
+            caption: 图像描述文本
+            output: 大脑的行为输出
+            novelty: 新奇度
+            emotion: 当前情绪
+        """
+        try:
+            import sys
+            enc_dir = os.path.join(os.path.dirname(os.path.abspath(__file__)),
+                                   "models", "encoders")
+            sys.path.insert(0, enc_dir)
+            from multimodal import encode_image
+        except ImportError:
+            return {"caption": "[视觉模块不可用]", "output": "",
+                    "error": "multimodal encoder not found"}
+
+        # 编码图像
+        result = encode_image(image_path)
+        caption = result.get("text", "")
+        features = result.get("features", [])
+
+        if not caption:
+            caption = "[未识别出图像内容]"
+
+        # 文本通道：图像描述进入感知
+        output = self.sensory_input(caption)
+
+        # 特征通道：图像特征也注入感官层
+        if features:
+            self.sensory_input_vector(features, label=f"[图像特征]")
+
+        # 标记视觉来源
+        self._push_thought(caption, source="visual")
+
+        return {
+            "caption": caption,
+            "output": output,
+            "novelty": round(self.novelty, 3),
+            "emotion": dict(self.emotion),
+            "thought_space_size": len(self.thought_space),
+            "meta": result.get("meta", {}),
+        }
+
+    def multimodal_input(self,
+                         text: str = "",
+                         audio_path: str = "",
+                         image_path: str = "") -> Dict:
+        """多模态联合输入：同时接收文本、音频、图像。
+
+        所有模态的感知结果都进入同一个思考空间，
+        大脑会跨模态联想（比如看到猫+听到喵叫 → 联想到"猫"）。
+        """
+        results = {}
+
+        if text:
+            results["text"] = self.sensory_input(text)
+            self._push_thought(text, source="text")
+
+        if audio_path:
+            results["audio"] = self.hear(audio_path)
+
+        if image_path:
+            results["image"] = self.see(image_path)
+
+        # 多模态整合：思考空间里同时有来自不同感官的念头
+        thoughts = self.current_thoughts() if hasattr(self, 'current_thoughts') else []
+
+        return {
+            "results": results,
+            "thought_space": [(t.content, t.source, round(t.activation, 2))
+                              for t in self.thought_space],
+            "dominant_thought": (self.top_thought().content
+                                 if self.top_thought() else None),
+            "emotion": dict(self.emotion),
+        }
 
     # ------------------ 可学习投影（v4.0） ------------------
 
@@ -1463,6 +1661,42 @@ class AIBrainEntity:
                      "description": "决策层弱/无发放，保持监听"},
     }
 
+    # v5.1 意图动词表：在脉冲强度动作（强度轴）之外提供意图轴，
+    # 由 select_verb() 策略化选择（greedy/ε-greedy/softmax）或
+    # decide_action(deliberate=True) 启发式裁定；每个 verb 独立 Q 值。
+    INTENT_VERBS: Dict[str, Dict] = {
+        "respond":     {"channel": "external",
+                        "description": "全通道回应（脉冲强发放）"},
+        "acknowledge": {"channel": "external",
+                        "description": "低强度跟进（脉冲中等发放）"},
+        "observe":     {"channel": "internal",
+                        "description": "保持监听（脉冲弱/无发放）"},
+        "ask":         {"channel": "external",
+                        "description": "提问澄清：记忆未命中且新奇度高时反问"},
+        "retrieve":    {"channel": "internal",
+                        "description": "检索回忆：多条记忆命中时主动调取"},
+        "plan":        {"channel": "internal",
+                        "description": "规划分解：把目标拆进思考空间逐步想"},
+        "execute":     {"channel": "external",
+                        "description": "调用执行器：驱动外部行动"},
+        "wait":        {"channel": "internal",
+                        "description": "延迟观望：存在未消退资格迹时等待信号"},
+    }
+
+    # v5.1 意图动词语言模板（verb 非脉冲三动作时优先于动作×情绪模板）
+    _VERB_TEMPLATES: Dict[str, List[str]] = {
+        "ask":      ["关于「{stim}」，我的记忆里没有答案{mem_clause}——能再多告诉我一些吗？",
+                     "「{stim}」对我来说很新鲜{mem_clause}，我想问：它意味着什么？"],
+        "retrieve": ["「{stim}」让我翻出了记忆：{mem_clause}这些或许能回答你。",
+                     "让我想想……{mem_clause}关于「{stim}」，我记得这些。"],
+        "plan":     ["「{stim}」值得好好规划——我把它拆进思考空间，一步一步来。",
+                     "面对「{stim}」，先别急：{mem_clause}让我分解一下再行动。"],
+        "execute":  ["「{stim}」——该动手了，我现在就去执行。",
+                     "想清楚了：「{stim}」{mem_clause}，立即行动。"],
+        "wait":     ["「{stim}」……时机还没到，我再等一等后续信号。",
+                     "（「{stim}」{mem_clause}——先按兵不动，静候变化。）"],
+    }
+
     # 语言生成模板：按 (动作 × 主导情绪) 选槽位填充
     _UTTER_TEMPLATES: Dict[str, Dict[str, List[str]]] = {
         "主动响应": {
@@ -1486,7 +1720,8 @@ class AIBrainEntity:
         },
     }
 
-    def decide_action(self, stimulus: str = "") -> Dict:
+    def decide_action(self, stimulus: str = "", deliberate: bool = False,
+                      policy: Optional[str] = None) -> Dict:
         """决策输出 → 结构化动作（动作空间接口，v4.0）。
 
         返回可供外部执行器消费的动作指令：
@@ -1495,6 +1730,15 @@ class AIBrainEntity:
           intensity — 动作强度（决策层脉冲占比 0..1）
           mood      — 主导情绪
           recalled  — 联想记忆内容列表
+
+        v5.1 deliberate=True 时启用"深思熟虑"：决策前先检索记忆、
+        查技能价值 Q、看新奇度与资格迹，输出带理由的决策——
+          verb      — 可能被策略/启发式覆盖为意图动词（INTENT_VERBS）
+          base_verb — 脉冲强度决定的原始 verb（对照用）
+          rationale — 决策理由链（人类可读，逐步）
+          q_values  — 当前全部 verb 的技能价值快照
+          novelty   — 最近刺激的新奇度
+        policy 非空时（"greedy"/"epsilon"/"softmax"）由习得 Q 值选 verb。
         """
         spikes = sum(1 for n in self.decision_layer if n.spike)
         if spikes >= 4:
@@ -1509,28 +1753,86 @@ class AIBrainEntity:
                 if len(token) >= 2:
                     recalled.extend(self.recall(token, top_k=1))
         dominant = max(self.emotion, key=lambda k: self.emotion[k])
-        return {
+        base_verb = self.ACTION_SPACE[action]["verb"]
+        result = {
             "action": action,
-            "verb": self.ACTION_SPACE[action]["verb"],
+            "verb": base_verb,
             "intensity": round(spikes / len(self.decision_layer), 3),
             "mood": dominant,
             "recalled": [m.content for m in recalled[:2]],
             "tick": self.tick,
         }
+        if not deliberate:
+            return result
 
-    def express(self, stimulus: str = "") -> Dict:
+        # ---------- v5.1 深思熟虑：带理由的决策 ----------
+        rationale = [f"决策层脉冲 {spikes}/{len(self.decision_layer)} "
+                     f"→ {action}（base_verb={base_verb}）"]
+        if recalled:
+            rationale.append(
+                f"联想命中 {len(recalled)} 条记忆："
+                f"{[m.content for m in recalled[:2]]}")
+        else:
+            rationale.append("记忆未命中（或无语义线索）")
+        top_q_verb = max(self.verb_values, key=lambda v: self.verb_values[v])
+        rationale.append(
+            f"技能价值最高：{top_q_verb}"
+            f"(Q={self.verb_values[top_q_verb]:.2f})")
+
+        verb = base_verb
+        if policy is not None:
+            verb = self.select_verb(policy)
+            rationale.append(f"策略 {policy} 按 Q 值选定 verb={verb}")
+        else:
+            # 启发式裁定：记忆/新奇度/资格迹共同决定意图
+            if stimulus and not recalled and self.novelty > 0.5:
+                verb = "ask"
+                rationale.append(
+                    f"记忆未命中且新奇度 {self.novelty:.2f}>0.5 → 提问澄清")
+            elif len(recalled) >= 2:
+                verb = "retrieve"
+                rationale.append("多条记忆同时命中 → 主动检索回忆")
+            elif self.eligibility and \
+                    max(self.eligibility.values()) > 0.1:
+                verb = "wait"
+                rationale.append(
+                    "存在未消退资格迹（奖励信号或将到来）→ 延迟观望")
+        if verb == "plan":
+            goal = stimulus or (self.top_thought().content
+                                if self.top_thought() else "（无目标）")
+            self._push_thought(f"规划目标：{goal}", source="internal")
+            rationale.append(f"规划目标「{goal}」已压入思考空间")
+
+        result.update({
+            "verb": verb,
+            "base_verb": base_verb,
+            "rationale": rationale,
+            "novelty": round(self.novelty, 3),
+            "q_values": {k: round(v, 3) for k, v in self.verb_values.items()},
+        })
+        return result
+
+    def express(self, stimulus: str = "", deliberate: bool = False,
+                policy: Optional[str] = None) -> Dict:
         """语言生成模块（v4.0）：决策 → 动作 → 模板化自然语言表达。
 
         按 (动作 × 主导情绪) 取模板，填充刺激与联想记忆槽位；
         同一 (动作, 情绪) 的多条模板按 tick 轮转，保证确定性可复现。
+        v5.1：deliberate/policy 透传给 decide_action；意图动词
+        （ask/retrieve/plan/execute/wait）优先使用专属动词模板。
         返回 {"action": <decide_action 结果>, "utterance": str}。
         """
-        act = self.decide_action(stimulus)
-        table = self._UTTER_TEMPLATES[act["action"]]
-        templates = table.get(act["mood"]) or table["calm"]
-        tpl = templates[self.tick % len(templates)]
+        act = self.decide_action(stimulus, deliberate=deliberate,
+                                 policy=policy)
         mem_clause = (f"这让我想起「{act['recalled'][0]}」，"
                       if act["recalled"] else "")
+        verb_templates = self._VERB_TEMPLATES.get(act["verb"])
+        if verb_templates is not None:
+            tpl = verb_templates[self.tick % len(verb_templates)]
+        else:
+            table = self._UTTER_TEMPLATES[act["action"]]
+            templates = table.get(act["mood"]) or table["calm"]
+            tpl = templates[self.tick % len(templates)]
         utterance = tpl.format(stim=stimulus or "……", mem_clause=mem_clause)
         return {"action": act, "utterance": utterance}
 
@@ -1617,6 +1919,52 @@ class AIBrainEntity:
                 "fragments": [m.content for m in mems],
                 "frame": frame, "mood": act["mood"]}
 
+    # ------------------ 对话接口（v5.0） ------------------
+
+    def chat(self, message: str, think_ticks: int = 2) -> Dict:
+        """对话接口：接收消息 → 感知 → 思考 → 生成回复。
+
+        返回 {
+            "reply": 自然语言回复,
+            "emotion": 当前主导情绪,
+            "thought": 思考结果,
+            "recalled": 联想记忆,
+            "novelty": 新奇度,
+        }
+        """
+        # 1. 感知：消息进入大脑
+        self.sensory_input(message)
+
+        # 2. 思考：内部联想
+        think_result = self.think(message, ticks=think_ticks)
+
+        # 3. 生成回复
+        composed = self.compose(message, top_k=3)
+        reply = composed["utterance"]
+
+        # 4. 情绪标签
+        mood_cn = {"calm": "平静", "curiosity": "好奇",
+                   "stress": "紧张", "pleasure": "愉悦"}
+        dominant = max(self.emotion, key=lambda k: self.emotion[k])
+
+        return {
+            "reply": reply,
+            "emotion": mood_cn.get(dominant, dominant),
+            "emotion_values": {k: round(v, 2) for k, v in self.emotion.items()},
+            "thought": think_result.get("thought", ""),
+            "recalled": think_result.get("recalled", []),
+            "novelty": round(self.novelty, 3),
+            "attention": round(self.attention_factor, 3),
+            "thought_space_size": len(self.thought_space),
+        }
+
+    def chat_history(self) -> List[Dict]:
+        """返回对话历史（从元认知日志中提取）"""
+        return [
+            {"tick": e["tick"], "text": e["text"], "mood": e["mood"]}
+            for e in self.metacog_log
+        ]
+
     # ------------------ 动作执行器（v4.1 感知-决策-执行-学习闭环） ------------------
 
     def register_executor(self, fn: Callable,
@@ -1661,6 +2009,9 @@ class AIBrainEntity:
                 if cfg["verb"] == verb:
                     act_dict = dict(act_dict, action=name, verb=verb)
                     break
+            else:
+                # v5.1 意图动词：保留脉冲动作名，仅覆盖 verb
+                act_dict = dict(act_dict, verb=verb)
         fn = (executor
               or self.executors.get(act_dict["verb"])
               or self.default_executor)
