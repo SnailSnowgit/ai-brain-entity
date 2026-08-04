@@ -31,6 +31,8 @@ v5.8 集体意识：集体工作空间、群体同步/情绪/极化、集体意�
 v5.9 语言模型接入：Qwen2-0.5B 作为语言生成后端——大脑负责
 "想什么"（决策/记忆/情绪），外部 LLM 负责"说出来"，
 未下载模型或生成失败自动降级回模板。
+v6.0 记忆向量库：LanceDB 持久化长期记忆（容量无限、语义检索），
+recall_semantic 向量近邻回忆，未装 lancedb 自动降级内存模式。
 
 ## 它是什么
 
@@ -88,12 +90,14 @@ v5.9 语言模型接入：Qwen2-0.5B 作为语言生成后端——大脑负责
 | **集体意识** | 群体意识涌现 | v5.8：`collective_workspace` 群体共享意识空间；`group_synchrony`/`group_emotion`/`group_polarization`/`group_ncc`/`group_self_awareness` 群体度量；`collective_consciousness_check` 涌现判定 |
 | **文化演化** | 模因演化+物种形成 | v5.3：`cultural_evolution_step`/`cultural_evolution` 模因传播+变异轨迹；`sexual_reproduce` 双亲 DNA 重组；`genetic_distance`/`detect_species` 遗传距离与物种检测 |
 | **语言模型接入** | 布洛卡区外接 | v5.9：`set_qwen_model()` 接入 Qwen2-0.5B-Instruct，大脑状态快照（刺激/动作/情绪/记忆/意识焦点）→ LLM 造句；`register_language_generator` 可换任意自定义模型；未下载自动降级模板 |
+| **记忆向量库** | 海马体外置 | v6.0：`attach_memory_store()` 接入 LanceDB，LTM 固化/强化/衰减自动同步到本地向量库（content+512维features+权重+tag）；`recall_semantic()` 向量近邻语义回忆；未装 lancedb 降级内存+关键词模式 |
 
 ## 依赖说明
 
 核心模块零第三方依赖，仅需 Python 3.8+ 标准库；实验绘图需要
 matplotlib/seaborn/pandas；多模态真实编码需要 transformers/torch
-（不装自动降级为伪 embedding，不影响核心功能）。
+（不装自动降级为伪 embedding，不影响核心功能）；记忆向量库需要
+lancedb（不装自动降级为内存+关键词模式，不影响核心功能）。
 
 ## 快速开始
 
@@ -105,7 +109,7 @@ python swarm.py              # 群体文化传递演示（定向传递+变异+�
 python experiments.py        # 复现实验 1-8（统一入口，生成 figures/ 与 data/ 结果）
 python encoder_status.py        # 观测台编码器面板数据（另两个导出器：brain_activity_trace / thought_chain_scenarios）
 python run_all.py               # 一键全流程：测试 → 演示 → 实验 → 观测数据（--quick 快速模式）
-python -m unittest discover tests  # 运行核心行为测试（151 项）
+python -m unittest discover tests  # 运行核心行为测试（157 项）
 ```
 
 ```python
@@ -382,6 +386,17 @@ out = brain.chat("你好")         # 对话回复同样走 Qwen
 # 换任意自定义语言模型：callable(context) -> str
 # register_language_generator(my_llm_fn, name="mine")
 
+# ===== v6.0 记忆向量库：LanceDB 持久化 + 语义回忆 =====
+# pip install lancedb（纯 wheel，Rust 内核，约 30MB；未装自动降级内存模式）
+info = brain.attach_memory_store()     # 默认存到 data/lancedb/
+# info = {"attached": True, "available": True, ...}
+brain.sensory_input("火焰是危险的")    # LTM 固化时自动同步到向量库
+rows = brain.recall_semantic("火灾")   # 向量近邻检索 → 能召回"火焰是危险的"
+# rows = [{"content", "weight", "tag", "distance", "source": "lancedb"}]
+brain.decay_memory(0.995)              # 大脑衰减节律同步到库（低于阈值删除）
+# 记忆携带真实 embedding（CLIP/Qwen features）时语义检索质量最佳；
+# 纯文本记忆走零依赖哈希向量兜底（字面近似）
+
 # 群体智能：文化传递
 swarm = BrainSwarm(["Alpha", "Beta", "Gamma"], seed=1)
 for _ in range(25):
@@ -463,6 +478,10 @@ clone = AIBrainEntity.load_dna("brain_dna.json", new_name="Brain-02")
 | `register_language_generator(fn, name)` / `unregister_language_generator(name)` | 注册/注销自定义语言生成器，契约 `callable(context) -> str` |
 | `get_language_generator_info()` | 当前语言生成器注册状态 |
 | `express(..., use_generator=False)` | v5.9 参数：强制走模板（默认已注册生成器时优先 LLM 造句） |
+| **v6.0 记忆向量库** | |
+| `attach_memory_store(store, path)` | 接入 LanceDB 记忆后端（默认 `data/lancedb/`）；未装 lancedb 时行为不变，返回可用状态 |
+| `recall_semantic(query, top_k)` | 语义回忆：向量近邻检索 LTM（字符串走哈希向量兜底）；无后端时降级关键词 recall |
+| `memory_store.py` | `LanceMemoryStore`：add/update_weight/search_vector/search_text/decay/count/info |
 | `dump_dna()` / `from_dna(dna)` | DNA 字典级导出与重建（`save_dna`/`load_dna` 的内存版） |
 
 **群体文化工具**（`swarm.py` 实验层）
@@ -496,9 +515,10 @@ ai_brain/
 ├── brain_activity_trace.py   # 大脑活动追踪导出（每步膜电位/脉冲/情绪/记忆 → data/）
 ├── thought_chain_scenarios.py  # 脉冲思考链三场景导出（Spike CoT 对照实验 → data/）
 ├── encoder_status.py         # 多模态编码器状态导出（v3.1 自定义模型通路 → data/）
+├── memory_store.py           # v6.0 LanceDB 记忆向量库后端（未装 lancedb 自动降级）
 ├── run_all.py                # 全流程统一入口（测试→演示→实验→观测数据，--quick 快速模式）
 ├── tests/                    # 核心行为测试（纯标准库 unittest）
-│   └── test_ai_brain.py      # 151 项：编码/可塑性/记忆/奖励/DNA/思考链/群体/多模态/v4.0~v5.9
+│   └── test_ai_brain.py      # 157 项：编码/可塑性/记忆/奖励/DNA/思考链/群体/多模态/v4.0~v6.0
 ├── docs/
 │   └── paper.md              # 学术论文（架构+实验+分析，含 v3.0 更新章节）
 ├── data/                     # 运行时数据产物
@@ -583,3 +603,4 @@ ai_brain/
 - ✅ ~~高阶意识理论（HOT）：高阶思想、元意识、内省层级~~（v5.7：`higher_order_thought` / `introspection_hierarchy`）
 - ✅ ~~集体意识：群体工作空间与涌现判定~~（v5.8：`collective_workspace` / `collective_consciousness_check`）
 - ✅ ~~语言生成接入真实 LLM（大脑想什么 → 模型说出来）~~（v5.9：`set_qwen_model()` + `register_language_generator`，Qwen2-0.5B / 任意自定义模型，未下载自动降级模板）
+- ✅ ~~长期记忆外置向量库：容量无限 + 语义检索~~（v6.0：`attach_memory_store()` + `recall_semantic()`，LanceDB 持久化，未装自动降级内存模式）

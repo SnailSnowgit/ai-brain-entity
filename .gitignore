@@ -9,3 +9,7 @@ __pycache__/
 *.onnx
 *.ckpt
 *.gguf
+
+# LanceDB 记忆库数据与 SDK 源码参考副本不进版本库
+data/lancedb/
+lancedb_src/

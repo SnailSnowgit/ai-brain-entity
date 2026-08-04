@@ -757,6 +757,10 @@ class AIBrainEntity:
         self.metacog_log: List[Dict] = []
         # v5.2 念头流水账：每个进入意识的念头留痕（自我意识追溯用）
         self.thought_journal: List[Dict] = []   # {content, source, tick}
+
+        # v6.0 LanceDB 记忆后端：attach_memory_store() 接入后，
+        # LTM 固化/强化/衰减会同步到本地向量库；None = 纯内存模式
+        self.memory_store = None
         # v5.3 自我概念：关于"我是谁"的核心信念集合
         self.self_concept: List[str] = []       # 自我概念条目
         # v5.3 自传体记忆：个人经历的时间线（重要事件）
@@ -2319,12 +2323,77 @@ class AIBrainEntity:
             if old.content == mem.content:
                 old.weight = self._clip(old.weight + 0.15)
                 old.timestamp = mem.timestamp
+                self._store_sync_weight(old)      # v6.0 同步到 LanceDB
                 return
         mem.tag = "event"
         self.long_memory.append(mem)
         if len(self.long_memory) > self.max_ltm:
             self.long_memory.sort(key=lambda m: m.weight)
             self.long_memory.pop(0)  # 遗忘最弱的长期记忆
+        self._store_sync_add(mem)                 # v6.0 同步到 LanceDB
+
+    # ------------------ LanceDB 记忆后端（v6.0） ------------------
+
+    def attach_memory_store(self, store=None,
+                            path: str = "data/lancedb") -> Dict:
+        """接入 LanceDB 记忆后端：LTM 持久化到本地向量库。
+
+        lancedb 未安装时 store.available=False，大脑行为完全不变
+        （纯内存 + 关键词 recall）。返回后端状态。
+        """
+        if store is None:
+            from memory_store import LanceMemoryStore
+            store = LanceMemoryStore(path)
+        self.memory_store = store
+        return {"attached": True,
+                "available": getattr(store, "available", False),
+                "error": getattr(store, "_error", None)}
+
+    def _store_sync_add(self, mem: BrainMemory) -> None:
+        """固化同步：新 LTM 写入向量库（尽力而为，失败不影响大脑）"""
+        store = self.memory_store
+        if store is not None and getattr(store, "available", False):
+            try:
+                store.add(mem, brain_name=self.name)
+            except Exception:
+                pass
+
+    def _store_sync_weight(self, mem: BrainMemory) -> None:
+        """强化同步：已有 LTM 权重更新到向量库"""
+        store = self.memory_store
+        if store is not None and getattr(store, "available", False):
+            try:
+                store.update_weight(mem.content, mem.weight,
+                                    brain_name=self.name)
+            except Exception:
+                pass
+
+    def recall_semantic(self, query, top_k: int = 3) -> List[Dict]:
+        """语义回忆（v6.0）：向量近邻检索长期记忆。
+
+        query 为数值序列时直接作为查询向量；为字符串时经零依赖
+        哈希向量编码后检索（字面近似；真正语义相似需记忆携带
+        CLIP/Qwen 真实 embedding）。
+        未接入 LanceDB 时自动降级为关键词 recall（同样返回字典列表）。
+        """
+        store = self.memory_store
+        if store is None or not getattr(store, "available", False):
+            kw = query if isinstance(query, str) else ""
+            return [{"content": m.content, "weight": round(m.weight, 4),
+                     "tag": m.tag, "modality": m.modality,
+                     "source": "memory-fallback"}
+                    for m in self.recall(kw, top_k=top_k)]
+        if isinstance(query, str):
+            from memory_store import text_to_vector
+            query = text_to_vector(query)
+        rows = store.search_vector(query, top_k=top_k,
+                                   brain_name=self.name)
+        for r in rows:
+            r["source"] = "lancedb"
+            # 语义命中也进入思考空间（与关键词 recall 一致）
+            self._push_thought(r["content"], source="memory",
+                               activation=0.8)
+        return rows
 
     def decay_memory(self, factor: float = 0.995):
         """记忆随时间自然衰减（模拟睡眠/时间流逝），低于阈值被遗忘"""
@@ -2332,6 +2401,13 @@ class AIBrainEntity:
             for m in store:
                 m.weight *= factor
             store[:] = [m for m in store if m.weight >= self.forget_threshold]
+        # v6.0：衰减节律同步到 LanceDB（尽力而为）
+        store = self.memory_store
+        if store is not None and getattr(store, "available", False):
+            try:
+                store.decay(factor, self.forget_threshold)
+            except Exception:
+                pass
 
     def sleep(self, cycles: int = 1) -> Dict:
         """睡眠-清醒节律（v4.8）：离线记忆重放 + 突触稳态缩放。

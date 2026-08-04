@@ -1754,5 +1754,109 @@ class TestLanguageGenerator(unittest.TestCase):
         self.assertEqual(get_language_generator_info()["default"], "qwen")
 
 
+class _FakeStore:
+    """鸭子类型记忆后端：记录同步调用（不依赖真实 lancedb）"""
+
+    def __init__(self):
+        self.available = True
+        self._error = None
+        self.added, self.updated, self.decays = [], [], []
+        self.rows = []
+
+    def add(self, mem, brain_name=""):
+        self.added.append((mem.content, brain_name))
+
+    def update_weight(self, content, weight, brain_name=""):
+        self.updated.append((content, weight))
+
+    def search_vector(self, vec, top_k=3, brain_name=None):
+        return self.rows[:top_k]
+
+    def decay(self, factor, forget_threshold):
+        self.decays.append((factor, forget_threshold))
+        return 0
+
+
+class TestLanceMemoryStore(unittest.TestCase):
+    """v6.0 LanceDB 记忆后端：固化/强化/衰减同步 + 语义回忆 + 降级"""
+
+    def setUp(self):
+        self.brain = AIBrainEntity("LDB", seed=1)
+
+    def _mem(self, content, weight=0.6):
+        import time as _t
+        return BrainMemory(content=content, timestamp=_t.time(),
+                           weight=weight, tag="event")
+
+    def test_attach_fake_store(self):
+        store = _FakeStore()
+        info = self.brain.attach_memory_store(store)
+        self.assertTrue(info["attached"])
+        self.assertTrue(info["available"])
+
+    def test_consolidation_syncs_add_and_weight(self):
+        store = _FakeStore()
+        self.brain.attach_memory_store(store)
+        self.brain._consolidate_to_ltm(self._mem("火焰是危险的"))
+        self.assertEqual(store.added, [("火焰是危险的", "LDB")])
+        # 重复固化同内容 → 强化已有记忆，同步权重更新
+        self.brain._consolidate_to_ltm(self._mem("火焰是危险的"))
+        self.assertEqual(len(store.added), 1)
+        self.assertEqual(len(store.updated), 1)
+        self.assertEqual(store.updated[0][0], "火焰是危险的")
+
+    def test_decay_syncs_to_store(self):
+        store = _FakeStore()
+        self.brain.attach_memory_store(store)
+        self.brain.decay_memory(0.5)
+        self.assertEqual(store.decays,
+                         [(0.5, self.brain.forget_threshold)])
+
+    def test_recall_semantic_fallback_without_store(self):
+        """未接后端：降级为关键词 recall，标记 source=memory-fallback"""
+        for _ in range(30):
+            self.brain.sensory_input("火焰是危险的")
+        rows = self.brain.recall_semantic("火焰")
+        self.assertTrue(rows)
+        self.assertEqual(rows[0]["source"], "memory-fallback")
+        self.assertIn("火焰", rows[0]["content"])
+
+    def test_recall_semantic_uses_store(self):
+        store = _FakeStore()
+        store.rows = [{"content": "钻木可以取火", "weight": 0.9,
+                       "tag": "culture", "modality": "text",
+                       "distance": 0.12}]
+        self.brain.attach_memory_store(store)
+        rows = self.brain.recall_semantic("火")
+        self.assertEqual(rows[0]["content"], "钻木可以取火")
+        self.assertEqual(rows[0]["source"], "lancedb")
+        # 语义命中进入思考空间
+        self.assertTrue(any(t.content == "钻木可以取火"
+                            for t in self.brain.thought_space))
+
+    def test_real_lancedb_roundtrip(self):
+        """真实 lancedb（未安装则跳过）：写入→向量检索→衰减删除"""
+        try:
+            import lancedb  # noqa: F401
+        except ImportError:
+            self.skipTest("lancedb 未安装")
+        import shutil
+        import tempfile
+        from memory_store import LanceMemoryStore
+        path = tempfile.mkdtemp(prefix="lance_test_")
+        self.addCleanup(shutil.rmtree, path, True)
+        store = LanceMemoryStore(path)
+        self.assertTrue(store.available, store._error)
+        self.brain.attach_memory_store(store)
+        self.brain._consolidate_to_ltm(self._mem("火焰是危险的"))
+        self.assertEqual(store.count(), 1)
+        rows = self.brain.recall_semantic("火焰")
+        self.assertTrue(rows)
+        self.assertEqual(rows[0]["content"], "火焰是危险的")
+        # 大幅衰减 → 权重跌破遗忘阈值 → 从库中删除
+        self.brain.decay_memory(0.01)
+        self.assertEqual(store.count(), 0)
+
+
 if __name__ == "__main__":
     unittest.main()
