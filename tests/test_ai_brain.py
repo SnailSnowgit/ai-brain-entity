@@ -1233,7 +1233,8 @@ class TestThoughtSystem(unittest.TestCase):
     def test_thought_capacity_evicts_weakest(self):
         """容量 7±2=9：超出时挤出激活度最低的念头"""
         for i in range(12):
-            self.brain._push_thought(f"念头{i}", activation=0.1 * (i % 9 + 1))
+            self.brain._push_thought(f"测试想法{i}",
+                                     activation=0.1 * (i % 9 + 1))
         self.assertLessEqual(len(self.brain.thought_space),
                              self.brain.thought_capacity)
         # 被挤出的应是激活度最低者
@@ -1674,10 +1675,10 @@ class TestThoughtJournal(unittest.TestCase):
     def test_journal_capped_at_50(self):
         brain = AIBrainEntity("cap", seed=1)
         for i in range(60):
-            brain._push_thought(f"念头{i}", source="internal")
+            brain._push_thought(f"测试想法{i}", source="internal")
         self.assertEqual(len(brain.thought_journal), 50)
         # 最旧的被挤出，最新的一定在
-        self.assertEqual(brain.thought_journal[-1]["content"], "念头59")
+        self.assertEqual(brain.thought_journal[-1]["content"], "测试想法59")
 
 
 class TestLanguageGenerator(unittest.TestCase):
