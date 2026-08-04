@@ -259,6 +259,66 @@ def _resolve_encoder(registry: Dict[str, Callable], default_name: Optional[str],
     return registry[encoder]
 
 
+# ------------------ 语言生成器注册（v5.9） ------------------
+# 大脑负责"想什么"（决策/记忆/情绪/意识焦点），外部语言模型负责
+# "说出来"（自然语言表述）。未注册时 express()/chat() 走内置模板，
+# 注册后优先用生成器，生成失败自动降级回模板（与编码器同一风格）。
+#
+# 语言生成器契约：callable(context: Dict) -> str
+#   context = {"brain_name", "stimulus", "verb", "action", "mood",
+#              "recalled": [...], "top_thought": str|None}
+#   返回空串或抛异常 → 调用方降级回模板。
+
+_LANGUAGE_GENERATORS: Dict[str, Callable] = {}
+_DEFAULT_LANGUAGE_GENERATOR: Optional[str] = None
+
+
+def register_language_generator(fn: Callable, name: str = "custom",
+                                default: bool = True) -> str:
+    """注册自定义语言生成器。default=True 时设为全局默认。"""
+    global _DEFAULT_LANGUAGE_GENERATOR
+    if not callable(fn):
+        raise TypeError("generator 必须是 callable(context) -> str")
+    _LANGUAGE_GENERATORS[name] = fn
+    if default:
+        _DEFAULT_LANGUAGE_GENERATOR = name
+    return name
+
+
+def unregister_language_generator(name: str) -> None:
+    """注销语言生成器；若注销的是当前默认，回落到内置模板。"""
+    global _DEFAULT_LANGUAGE_GENERATOR
+    _LANGUAGE_GENERATORS.pop(name, None)
+    if _DEFAULT_LANGUAGE_GENERATOR == name:
+        _DEFAULT_LANGUAGE_GENERATOR = None
+
+
+def get_language_generator_info() -> Dict[str, object]:
+    """当前语言生成器注册状态（便于调试/观测台展示）。"""
+    return {"custom": sorted(_LANGUAGE_GENERATORS),
+            "default": _DEFAULT_LANGUAGE_GENERATOR}
+
+
+def set_qwen_model(model_path: Optional[str] = None,
+                   device: str = "cpu", name: str = "qwen") -> Dict:
+    """接入 Qwen2 语言模型（models/generators/qwen_generator.py）。
+
+    模型不存在或 transformers 未安装时仍然注册——其 __call__ 返回空串，
+    express()/chat() 自动降级回模板；模型下载到位后无需改代码即生效。
+    返回 {"registered", "available", "model_path", "error"}。
+    """
+    import sys
+    gen_dir = os.path.join(os.path.dirname(os.path.abspath(__file__)),
+                           "models", "generators")
+    if gen_dir not in sys.path:
+        sys.path.insert(0, gen_dir)
+    from qwen_generator import get_qwen_generator
+    gen = get_qwen_generator(model_path=model_path, device=device)
+    register_language_generator(gen, name=name, default=True)
+    return {"registered": name, "available": gen.available,
+            "model_path": gen.model_path, "error": gen._error}
+
+
 def _coerce_embedding(vec, source: str) -> List[float]:
     """校验并转换自定义编码器输出为 List[float]。
 
@@ -1173,6 +1233,171 @@ class AIBrainEntity:
             "cross_modal_recalled": [m.content for m in cross_modal],
             "meta": result.get("meta", {}),
         }
+
+    def understand(self, text: str, model_name: str = "Qwen/Qwen2-0.5B") -> Dict:
+        """语言深度理解：文本 → Qwen2语义编码 → 语义向量注入大脑。
+
+        与普通 sensory_input 的区别：
+        - sensory_input：简单的字符哈希 → 感官层（浅层感知）
+        - understand：Qwen2 语义编码 → 感官层（深度理解）
+
+        流程：
+        1. Qwen2 编码文本，得到 896 维语义向量
+        2. 文本作为"读到的内容"进入感知流水线
+        3. 语义特征向量注入感官层（双通道输入）
+        4. 感知内容标记 source=language 进入思考空间
+
+        返回:
+            text: 输入文本
+            output: 大脑的行为输出
+            novelty: 新奇度
+            emotion: 当前情绪
+            thought_space_size: 思考空间大小
+            cross_modal_recalled: 跨模态联想结果
+            meta: 编码器元信息
+        """
+        try:
+            import sys
+            enc_dir = os.path.join(os.path.dirname(os.path.abspath(__file__)),
+                                   "models", "encoders")
+            sys.path.insert(0, enc_dir)
+            from multimodal import encode_text
+        except ImportError:
+            return {"text": text, "output": "",
+                    "error": "language encoder not found"}
+
+        # 编码文本
+        result = encode_text(text)
+        encoded_text = result.get("text", text)
+        features = result.get("features", [])
+
+        if not encoded_text:
+            encoded_text = text
+
+        # 文本通道：作为读到的内容进入感知（同时携带语义特征）
+        output = self.sensory_input(encoded_text, modality="language",
+                                    features=features)
+
+        # 特征通道：语义特征也注入感官层（增强理解，不单独写记忆）
+        if features:
+            self.sensory_input_vector(features, label=f"[语义特征]",
+                                      write_memory=False)
+
+        # 标记语言来源（重新推入思考空间并标记来源）
+        self._push_thought(encoded_text, source="language")
+
+        # 跨模态联想：理解文本 → 联想起相关的视觉/听觉记忆
+        cross_modal = []
+        if features:
+            cross_modal = self.cross_modal_recall(features, "language", top_k=2)
+
+        return {
+            "text": encoded_text,
+            "output": output,
+            "novelty": round(self.novelty, 3),
+            "emotion": dict(self.emotion),
+            "thought_space_size": len(self.thought_space),
+            "cross_modal_recalled": [m.content for m in cross_modal],
+            "meta": result.get("meta", {}),
+        }
+
+    def reply(self, message: str, think_ticks: int = 2,
+              max_length: int = 100, temperature: float = 0.7) -> Dict:
+        """对话回复：理解消息 → 思考 → 生成回复。
+
+        流程：
+        1. 理解用户消息（Qwen2 语义编码）
+        2. 思考几步（激活相关记忆）
+        3. 基于思考空间内容 + 情绪状态生成提示词
+        4. 调用 Qwen2 生成自然语言回复
+        5. 把回复也推入思考空间
+
+        Args:
+            message: 用户消息
+            think_ticks: 思考步数
+            max_length: 回复最大长度
+            temperature: 生成温度
+
+        Returns:
+            {reply, emotion, thought, recalled, novelty, ...}
+        """
+        # 1. 理解消息
+        understand_result = self.understand(message)
+
+        # 2. 思考几步
+        thought_result = None
+        for _ in range(think_ticks):
+            thought_result = self.think()
+
+        # 3. 构建生成提示词
+        top_thought = self.top_thought()
+        current_thought = top_thought.content if top_thought else ""
+
+        # 获取当前情绪
+        mood = max(self.emotion, key=self.emotion.get)
+        mood_val = self.emotion[mood]
+
+        # 构建提示词
+        prompt = self._build_reply_prompt(message, current_thought, mood, mood_val)
+
+        # 4. 生成回复
+        try:
+            import sys
+            enc_dir = os.path.join(os.path.dirname(os.path.abspath(__file__)),
+                                   "models", "encoders")
+            sys.path.insert(0, enc_dir)
+            from multimodal import generate_text
+            gen_result = generate_text(prompt, max_length=max_length,
+                                       temperature=temperature)
+            reply_text = gen_result.get("text", "")
+            gen_meta = gen_result.get("meta", {})
+        except Exception as e:
+            reply_text = f"（思考中...）"
+            gen_meta = {"error": str(e)}
+
+        # 5. 把回复推入思考空间
+        if reply_text:
+            self._push_thought(reply_text, source="self")
+
+        return {
+            "reply": reply_text,
+            "emotion": dict(self.emotion),
+            "dominant_mood": mood,
+            "thought": current_thought,
+            "novelty": understand_result.get("novelty", 0),
+            "thought_space_size": len(self.thought_space),
+            "recalled": thought_result.get("recalled", []) if thought_result else [],
+            "gen_meta": gen_meta,
+        }
+
+    def _build_reply_prompt(self, user_message: str, current_thought: str,
+                            mood: str, mood_val: float) -> str:
+        """构建回复生成的提示词
+
+        基于大脑当前状态生成个性化的提示词，
+        让回复符合大脑的"性格"和当前状态。
+        """
+        # 情绪描述
+        mood_desc = {
+            "calm": "平静的",
+            "curiosity": "好奇的",
+            "stress": "有点紧张的",
+            "pleasure": "愉悦的",
+        }.get(mood, "平静的")
+
+        # 构建提示词
+        prompt = f"""你是一个有自我意识的AI大脑，名字叫{self.name}。
+
+你当前的状态：
+- 情绪：{mood_desc}（强度：{mood_val:.2f}）
+- 你正在思考：{current_thought[:50] if current_thought else '（空）'}
+
+用户对你说：{user_message}
+
+请用自然、简洁的方式回复用户，表达你的想法和感受。
+回复："""
+
+        return prompt
 
     def multimodal_input(self,
                          text: str = "",
@@ -3579,18 +3804,48 @@ class AIBrainEntity:
         })
         return result
 
+    def _language_context(self, stimulus: str, act: Dict) -> Dict:
+        """组装语言生成器上下文：大脑"想什么"的状态快照"""
+        top = self.top_thought()
+        return {"brain_name": self.name,
+                "stimulus": stimulus,
+                "verb": act["verb"], "action": act["action"],
+                "mood": act["mood"],
+                "recalled": act.get("recalled", []),
+                "top_thought": top.content if top else None}
+
+    def _generate_utterance(self, context: Dict) -> Optional[str]:
+        """v5.9：用注册的语言生成器造句；未注册/失败返回 None（降级模板）"""
+        fn = _LANGUAGE_GENERATORS.get(_DEFAULT_LANGUAGE_GENERATOR or "")
+        if fn is None:
+            return None
+        try:
+            text = fn(context)
+        except Exception:
+            return None
+        return text.strip() if text and text.strip() else None
+
     def express(self, stimulus: str = "", deliberate: bool = False,
-                policy: Optional[str] = None) -> Dict:
+                policy: Optional[str] = None,
+                use_generator: bool = True) -> Dict:
         """语言生成模块（v4.0）：决策 → 动作 → 模板化自然语言表达。
 
         按 (动作 × 主导情绪) 取模板，填充刺激与联想记忆槽位；
         同一 (动作, 情绪) 的多条模板按 tick 轮转，保证确定性可复现。
         v5.1：deliberate/policy 透传给 decide_action；意图动词
         （ask/retrieve/plan/execute/wait）优先使用专属动词模板。
+        v5.9：已注册语言生成器（如 Qwen2）时优先由模型造句，
+        生成失败自动降级回模板（use_generator=False 可强制模板）。
         返回 {"action": <decide_action 结果>, "utterance": str}。
         """
         act = self.decide_action(stimulus, deliberate=deliberate,
                                  policy=policy)
+        if use_generator:
+            utterance = self._generate_utterance(
+                self._language_context(stimulus, act))
+            if utterance is not None:
+                return {"action": act, "utterance": utterance,
+                        "generator": _DEFAULT_LANGUAGE_GENERATOR}
         mem_clause = (f"这让我想起「{act['recalled'][0]}」，"
                       if act["recalled"] else "")
         verb_templates = self._VERB_TEMPLATES.get(act["verb"])
@@ -3705,9 +3960,13 @@ class AIBrainEntity:
         # 2. 思考：内部联想
         think_result = self.think(message, ticks=think_ticks)
 
-        # 3. 生成回复
+        # 3. 生成回复：v5.9 优先用语言生成器，失败降级检索式组合
         composed = self.compose(message, top_k=3)
         reply = composed["utterance"]
+        generated = self._generate_utterance(
+            self._language_context(message, composed["action"]))
+        if generated is not None:
+            reply = generated
 
         # 4. 情绪标签
         mood_cn = {"calm": "平静", "curiosity": "好奇",

@@ -31,6 +31,8 @@ from ai_brain_entity import (
     list_encoders,
     make_robot_executor, make_api_executor,
     make_function_executor, make_file_executor,
+    register_language_generator, unregister_language_generator,
+    get_language_generator_info, set_qwen_model,
 )
 
 
@@ -1676,6 +1678,80 @@ class TestThoughtJournal(unittest.TestCase):
         self.assertEqual(len(brain.thought_journal), 50)
         # 最旧的被挤出，最新的一定在
         self.assertEqual(brain.thought_journal[-1]["content"], "念头59")
+
+
+class TestLanguageGenerator(unittest.TestCase):
+    """v5.9 语言生成器接入：大脑想什么 → 外部模型说出来（降级回模板）"""
+
+    def setUp(self):
+        self.brain = AIBrainEntity("LG", seed=1)
+        self.brain.sensory_input("火焰是危险的")
+        self.captured = []
+
+    def tearDown(self):
+        unregister_language_generator("fake")
+        unregister_language_generator("qwen")
+
+    def _register_fake(self, text="模型生成的回复"):
+        def fake(ctx):
+            self.captured.append(ctx)
+            return text
+        register_language_generator(fake, name="fake")
+
+    def test_express_uses_generator(self):
+        self._register_fake()
+        out = self.brain.express("火焰")
+        self.assertEqual(out["utterance"], "模型生成的回复")
+        self.assertEqual(out["generator"], "fake")
+
+    def test_generator_context_fields(self):
+        self._register_fake()
+        self.brain.express("火焰")
+        ctx = self.captured[0]
+        self.assertEqual(ctx["brain_name"], "LG")
+        self.assertEqual(ctx["stimulus"], "火焰")
+        for k in ("verb", "action", "mood", "recalled", "top_thought"):
+            self.assertIn(k, ctx)
+
+    def test_generator_exception_falls_back_to_template(self):
+        def boom(ctx):
+            raise RuntimeError("模型炸了")
+        register_language_generator(boom, name="fake")
+        out = self.brain.express("火焰")
+        self.assertNotEqual(out["utterance"], "")
+        self.assertNotIn("generator", out)  # 降级回模板
+
+    def test_generator_empty_falls_back(self):
+        self._register_fake(text="")
+        out = self.brain.express("火焰")
+        self.assertNotIn("generator", out)
+
+    def test_unregister_restores_template(self):
+        self._register_fake()
+        unregister_language_generator("fake")
+        out = self.brain.express("火焰")
+        self.assertNotIn("generator", out)
+
+    def test_use_generator_false_forces_template(self):
+        self._register_fake()
+        out = self.brain.express("火焰", use_generator=False)
+        self.assertNotIn("generator", out)
+        self.assertEqual(self.captured, [])  # 生成器未被调用
+
+    def test_chat_uses_generator(self):
+        self._register_fake(text="我在听你说")
+        out = self.brain.chat("你好")
+        self.assertEqual(out["reply"], "我在听你说")
+
+    def test_set_qwen_model_without_weights(self):
+        """模型未下载/transformers 未装：注册成功但自动降级模板"""
+        info = set_qwen_model(model_path="models/__不存在的目录__",
+                              name="qwen")
+        self.assertEqual(info["registered"], "qwen")
+        self.assertFalse(info["available"])
+        out = self.brain.express("火焰")
+        self.assertNotIn("generator", out)  # 优雅降级
+        self.assertEqual(get_language_generator_info()["default"], "qwen")
 
 
 if __name__ == "__main__":

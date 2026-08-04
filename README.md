@@ -28,6 +28,9 @@ v5.6 心智理论（ToM）：信念归因、错误信念任务、视角采择、
 意图理解、共情。
 v5.7 高阶意识理论（HOT）：高阶思想、元意识检测、内省层级。
 v5.8 集体意识：集体工作空间、群体同步/情绪/极化、集体意识检测。
+v5.9 语言模型接入：Qwen2-0.5B 作为语言生成后端——大脑负责
+"想什么"（决策/记忆/情绪），外部 LLM 负责"说出来"，
+未下载模型或生成失败自动降级回模板。
 
 ## 它是什么
 
@@ -84,6 +87,7 @@ v5.8 集体意识：集体工作空间、群体同步/情绪/极化、集体意�
 | **高阶意识** | HOT 元意识 | v5.7：`higher_order_thought(level)` 对意识的意识、`meta_awareness_check` 元意识检测、`introspection_hierarchy` 多层级内省、`get_hot_report` |
 | **集体意识** | 群体意识涌现 | v5.8：`collective_workspace` 群体共享意识空间；`group_synchrony`/`group_emotion`/`group_polarization`/`group_ncc`/`group_self_awareness` 群体度量；`collective_consciousness_check` 涌现判定 |
 | **文化演化** | 模因演化+物种形成 | v5.3：`cultural_evolution_step`/`cultural_evolution` 模因传播+变异轨迹；`sexual_reproduce` 双亲 DNA 重组；`genetic_distance`/`detect_species` 遗传距离与物种检测 |
+| **语言模型接入** | 布洛卡区外接 | v5.9：`set_qwen_model()` 接入 Qwen2-0.5B-Instruct，大脑状态快照（刺激/动作/情绪/记忆/意识焦点）→ LLM 造句；`register_language_generator` 可换任意自定义模型；未下载自动降级模板 |
 
 ## 依赖说明
 
@@ -101,7 +105,7 @@ python swarm.py              # 群体文化传递演示（定向传递+变异+�
 python experiments.py        # 复现实验 1-8（统一入口，生成 figures/ 与 data/ 结果）
 python encoder_status.py        # 观测台编码器面板数据（另两个导出器：brain_activity_trace / thought_chain_scenarios）
 python run_all.py               # 一键全流程：测试 → 演示 → 实验 → 观测数据（--quick 快速模式）
-python -m unittest discover tests  # 运行核心行为测试（143 项）
+python -m unittest discover tests  # 运行核心行为测试（151 项）
 ```
 
 ```python
@@ -364,6 +368,20 @@ print(swarm.group_polarization())                   # 极化程度
 check = swarm.collective_consciousness_check()      # 是否涌现集体意识
 print(swarm.get_collective_consciousness_report())  # 完整集体意识报告
 
+# ===== v5.9 语言模型接入：Qwen2 作为语言输出后端 =====
+# 1) 下载模型（国内推荐 ModelScope，权重约 1GB，CPU 可跑）
+#    pip install modelscope
+#    python -c "from modelscope import snapshot_download; \
+#        snapshot_download('qwen/Qwen2-0.5B-Instruct', cache_dir='models')"
+# 2) 一行接入：大脑负责"想什么"，Qwen 负责"说出来"
+from ai_brain_entity import set_qwen_model
+print(set_qwen_model())          # {"registered": "qwen", "available": ...}
+out = brain.express("火焰")      # 模型可用时由 Qwen 造句（含 "generator": "qwen"）
+out = brain.chat("你好")         # 对话回复同样走 Qwen
+# 模型未下载/transformers 未装：自动降级回模板，核心功能不受影响
+# 换任意自定义语言模型：callable(context) -> str
+# register_language_generator(my_llm_fn, name="mine")
+
 # 群体智能：文化传递
 swarm = BrainSwarm(["Alpha", "Beta", "Gamma"], seed=1)
 for _ in range(25):
@@ -440,6 +458,11 @@ clone = AIBrainEntity.load_dna("brain_dna.json", new_name="Brain-02")
 | `group_ncc()` / `group_self_awareness()` | 群体层面 NCC / 群体自我意识 |
 | `collective_consciousness_check()` / `get_collective_consciousness_report()` | 集体意识涌现判定 / 完整集体意识报告 |
 | `same_state_edge_ratio(meme)` | 同道边比例：两端观点相同的社交边占比（共同演化度量） |
+| **v5.9 语言模型接入** | |
+| `set_qwen_model(model_path, device)` | 接入 Qwen2-0.5B-Instruct 语言生成后端；模型缺失也注册（自动降级模板），返回可用状态 |
+| `register_language_generator(fn, name)` / `unregister_language_generator(name)` | 注册/注销自定义语言生成器，契约 `callable(context) -> str` |
+| `get_language_generator_info()` | 当前语言生成器注册状态 |
+| `express(..., use_generator=False)` | v5.9 参数：强制走模板（默认已注册生成器时优先 LLM 造句） |
 | `dump_dna()` / `from_dna(dna)` | DNA 字典级导出与重建（`save_dna`/`load_dna` 的内存版） |
 
 **群体文化工具**（`swarm.py` 实验层）
@@ -475,7 +498,7 @@ ai_brain/
 ├── encoder_status.py         # 多模态编码器状态导出（v3.1 自定义模型通路 → data/）
 ├── run_all.py                # 全流程统一入口（测试→演示→实验→观测数据，--quick 快速模式）
 ├── tests/                    # 核心行为测试（纯标准库 unittest）
-│   └── test_ai_brain.py      # 143 项：编码/可塑性/记忆/奖励/DNA/思考链/群体/多模态/v4.0~v5.2
+│   └── test_ai_brain.py      # 151 项：编码/可塑性/记忆/奖励/DNA/思考链/群体/多模态/v4.0~v5.9
 ├── docs/
 │   └── paper.md              # 学术论文（架构+实验+分析，含 v3.0 更新章节）
 ├── data/                     # 运行时数据产物
@@ -490,6 +513,8 @@ ai_brain/
 │       ├── my_encoder.py         # 示例自定义编码器（零依赖）
 │       ├── multimodal.py         # v5.0 Whisper/BLIP 编码器（本地→远程→PIL 降级链）
 │       └── multimodal_service.py # 跨进程编码服务（系统 Python 子进程入口）
+│   └── generators/           # 语言生成器目录
+│       └── qwen_generator.py     # v5.9 Qwen2-0.5B 语言后端（未下载自动降级模板）
 ├── figures/                  # 实验图表
 │   ├── exp1_hebbian.png      # 突触可塑性开关对照
 │   ├── exp2_memory.png       # 记忆固化与遗忘
@@ -557,3 +582,4 @@ ai_brain/
 - ✅ ~~心智理论（ToM）：信念归因、错误信念、视角采择、共情~~（v5.6：`theory_of_mind` 等 6 法）
 - ✅ ~~高阶意识理论（HOT）：高阶思想、元意识、内省层级~~（v5.7：`higher_order_thought` / `introspection_hierarchy`）
 - ✅ ~~集体意识：群体工作空间与涌现判定~~（v5.8：`collective_workspace` / `collective_consciousness_check`）
+- ✅ ~~语言生成接入真实 LLM（大脑想什么 → 模型说出来）~~（v5.9：`set_qwen_model()` + `register_language_generator`，Qwen2-0.5B / 任意自定义模型，未下载自动降级模板）
