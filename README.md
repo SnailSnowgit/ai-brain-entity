@@ -16,6 +16,9 @@ v5.0 思考体系：思考空间（全局工作区）、思考记忆（think 固
 思考感官（introspect 内感觉与元认知日志）。
 v5.1 动作与决策扩展：意图动词 3→8（ask/retrieve/plan/execute/wait）、
 深思熟虑决策（带 rationale 理由链）、函数/文件执行器。
+v5.2 意识与社会性：意识流（自由联想/白日梦/灵感闪现）、
+深度内省（introspect depth=deep）、多脑社交（发消息/文化学习/多轮对话）、
+进化选择（BrainSwarm 适应度评估→轮盘赌选择→变异繁衍）、念头流水账。
 
 ## 它是什么
 
@@ -63,6 +66,8 @@ v5.1 动作与决策扩展：意图动词 3→8（ask/retrieve/plan/execute/wait
 | **好奇驱动** | 新皮层-边缘系统 | `_assess_novelty()`：未命中率+|RPE| 双通路评估新奇度，当 tick 注意捕获；`effective_epsilon()` 新奇→多探索/熟悉→多利用；含习惯化（反复暴露新奇度衰减）与寻求刺激人格差异（SSS） |
 | **思考体系** | 全局工作区+内感觉 | `thought_space`：念头激活度衰减/容量 7±2；`think()` 念头回注网络、高激活固化进 STM；`introspect()` 感知自身脑活动并记元认知日志 |
 | **意图动词** | 基底节动作选择扩展 | v5.1：`INTENT_VERBS` 8 verb（ask/retrieve/plan/execute/wait）独立 Q 值，`decide_action(deliberate=True)` 带 rationale 理由链；`make_function_executor`/`make_file_executor` 实用执行器 |
+| **意识流** | 默认模式网络 | v5.2：`stream_of_consciousness()` 无输入时思绪自发流动：自由联想链、白日梦走神、双记忆组合灵感闪现 |
+| **社交与进化** | 社会脑+自然选择 | v5.2：`send_message`/`social_learn`/`chat_with` 多脑交流与文化学习；`BrainSwarm.evolve()` 适应度评估→轮盘赌选择→变异繁衍；`thought_journal` 念头流水账（cap 50） |
 
 ## 依赖说明
 
@@ -80,7 +85,7 @@ python swarm.py              # 群体文化传递演示（定向传递+变异+�
 python experiments.py        # 复现实验 1-8（统一入口，生成 figures/ 与 data/ 结果）
 python encoder_status.py        # 观测台编码器面板数据（另两个导出器：brain_activity_trace / thought_chain_scenarios）
 python run_all.py               # 一键全流程：测试 → 演示 → 实验 → 观测数据（--quick 快速模式）
-python -m unittest discover tests  # 运行核心行为测试（129 项）
+python -m unittest discover tests  # 运行核心行为测试（143 项）
 ```
 
 ```python
@@ -278,6 +283,29 @@ from ai_brain_entity import make_function_executor, make_file_executor
 brain.register_executor(make_function_executor(my_fn), verb="execute")
 brain.register_executor(make_file_executor("actions.jsonl"), default=True)
 
+# ===== v5.2 意识与社会性：意识流 / 深度内省 / 社交 / 进化 =====
+# 意识流：无外部输入时思绪自发流动（自由联想 + 白日梦 + 灵感闪现）
+out = brain.stream_of_consciousness(steps=5, daydream=0.3)
+# out = {"chain": ["火焰是危险的", "[联想] → ...", "[灵感!] A + B", ...],
+#        "insights": [...], "final_thought": ..., "daydream_level": 0.3}
+
+# 深度内省：知道"自己在想什么"（完整思考空间 + 记忆模态分布 + 自我指称）
+entry = brain.introspect(depth="deep")
+# entry["text"] ≈ "我是Brain-01，感到好奇。正在想「火焰」。思考空间有……新奇度0.7……"
+
+# 多脑社交：发消息 / 文化学习 / 多轮对话
+alice, bob = AIBrainEntity("Alice", seed=1), AIBrainEntity("Bob", seed=2)
+alice.send_message(bob, "今天天气不错")     # Bob 形成 tag="social" 社交记忆
+alice.social_learn(bob, n_memories=3)       # 复制 Bob 高权重记忆（权重×0.7，tag="culture"）
+conv = alice.chat_with(bob, turns=3)        # 轮流对话，内容进入双方思考空间
+
+# 进化：适者生存——评估适应度 → 轮盘赌选择 → 变异繁衍
+result = swarm.evolve(generations=10, task="memory")
+# result["history"] 每代统计：存活/出生/最优与平均适应度变化
+
+# 念头流水账：所有念头按时间留痕（容量 50，先进先出）
+brain.thought_journal[-1]   # {"content", "source", "tick"}
+
 # 群体智能：文化传递
 swarm = BrainSwarm(["Alpha", "Beta", "Gamma"], seed=1)
 for _ in range(25):
@@ -314,6 +342,13 @@ clone = AIBrainEntity.load_dna("brain_dna.json", new_name="Brain-02")
 | `INTENT_VERBS` | v5.1 意图动词表（8 verb，含 channel 与描述），`verb_values` 覆盖全部 8 个 |
 | `make_function_executor(fn, reward_of)` | v5.1 任意函数一行包装为执行器（成功 +0.5 / 异常 -0.5 / 自定义奖励映射） |
 | `make_file_executor(path)` | v5.1 动作以 JSONL 追加写文件，最通用的外部系统对接口 |
+| `stream_of_consciousness(steps, daydream)` | v5.2 意识流：自由联想链 / 白日梦走神 / 灵感闪现，返回 chain+insights+final_thought |
+| `introspect(depth="deep")` | v5.2 深度内省：自我指称 + 完整思考空间摘要 + 记忆模态分布 + 新奇度/注意力 |
+| `send_message(other, msg)` / `receive_message(...)` | v5.2 多脑通信：接收方形成 tag="social" 社交记忆与社交念头 |
+| `social_learn(other, n_memories)` | v5.2 文化学习：复制对方最高权重记忆（权重×0.7，tag="culture"），已知的跳过，愉悦上升 |
+| `chat_with(other, turns)` | v5.2 多轮对话：轮流发言，内容进入双方思考空间 |
+| `evaluate_fitness(task)` / `select()` / `evolve_generation()` / `evolve(gens)` | v5.2 进化：memory/curiosity/diversity/social 四种适应度，轮盘赌选择 + 变异繁衍 |
+| `thought_journal` | v5.2 念头流水账：所有念头按时间留痕（{content, source, tick}，cap 50） |
 | `dump_dna()` / `from_dna(dna)` | DNA 字典级导出与重建（`save_dna`/`load_dna` 的内存版） |
 
 **群体文化工具**（`swarm.py` 实验层）
@@ -349,7 +384,7 @@ ai_brain/
 ├── encoder_status.py         # 多模态编码器状态导出（v3.1 自定义模型通路 → data/）
 ├── run_all.py                # 全流程统一入口（测试→演示→实验→观测数据，--quick 快速模式）
 ├── tests/                    # 核心行为测试（纯标准库 unittest）
-│   └── test_ai_brain.py      # 129 项：编码/可塑性/记忆/奖励/DNA/思考链/群体/多模态/v4.0~v5.1
+│   └── test_ai_brain.py      # 143 项：编码/可塑性/记忆/奖励/DNA/思考链/群体/多模态/v4.0~v5.2
 ├── docs/
 │   └── paper.md              # 学术论文（架构+实验+分析，含 v3.0 更新章节）
 ├── data/                     # 运行时数据产物
@@ -360,7 +395,10 @@ ai_brain/
 │   └── brain_dna.json             # 演示生成的 DNA 快照
 ├── models/                   # 自定义多模态模型目录（权重已被 .gitignore 忽略）
 │   ├── README.md             # 目录约定与接入方式
-│   └── encoders/my_encoder.py  # 示例自定义编码器（零依赖）
+│   └── encoders/             # 编码器集合
+│       ├── my_encoder.py         # 示例自定义编码器（零依赖）
+│       ├── multimodal.py         # v5.0 Whisper/BLIP 编码器（本地→远程→PIL 降级链）
+│       └── multimodal_service.py # 跨进程编码服务（系统 Python 子进程入口）
 ├── figures/                  # 实验图表
 │   ├── exp1_hebbian.png      # 突触可塑性开关对照
 │   ├── exp2_memory.png       # 记忆固化与遗忘
@@ -415,3 +453,9 @@ ai_brain/
 - ✅ ~~情景记忆时间索引：LTM 记录"何时与何事共现"，支持"上次……之后"式时间推理~~（v4.7：`episodes` + `events_after()` / `events_before()`）
 - ✅ ~~睡眠-清醒节律：离线期记忆重放（replay）加速固化、清理低价值突触~~（v4.8：`sleep()`，SHY 等比缩放保留相对差异）
 - ✅ ~~好奇驱动探索：新奇度（RPE 绝对值 / 记忆未命中率）反向调制 ε 与注意~~（v4.9：`_assess_novelty()` + `effective_epsilon()`）
+- ✅ ~~思考体系：思考空间 / 思考记忆 / 思考感官~~（v5.0：`thought_space` + `think()` + `introspect()` + `metacog_log`）
+- ✅ ~~意图动词扩展与深思熟虑决策~~（v5.1：`INTENT_VERBS` 8 verb + rationale 理由链 + 函数/文件执行器）
+- ✅ ~~意识流：自由联想、白日梦、灵感闪现~~（v5.2：`stream_of_consciousness()`）
+- ✅ ~~自我意识：内省能力增强，知道"自己在想什么"~~（v5.2：`introspect(depth="deep")`）
+- ✅ ~~社交互动：多个大脑之间交流、学习、形成文化~~（v5.2：`send_message` / `social_learn` / `chat_with`）
+- ✅ ~~进化：BrainSwarm 群体智能，适者生存~~（v5.2：`evaluate_fitness` + `select` + `evolve()`）

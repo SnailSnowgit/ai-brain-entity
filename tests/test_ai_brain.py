@@ -1501,5 +1501,182 @@ class TestIntentVerbs(unittest.TestCase):
         self.assertIn("ts", rec)
 
 
+class TestStreamOfConsciousness(unittest.TestCase):
+    """v5.2 意识流：自由联想、白日梦、灵感闪现"""
+
+    def test_returns_chain_structure(self):
+        brain = AIBrainEntity("soc", seed=1)
+        for s in ["火焰是危险的", "水能灭火", "太阳会发光"]:
+            brain.sensory_input(s)
+        random.seed(7)
+        out = brain.stream_of_consciousness(steps=4)
+        self.assertIn("chain", out)
+        self.assertIn("insights", out)
+        self.assertIn("final_thought", out)
+        self.assertIn("thought_space_size", out)
+        self.assertEqual(out["daydream_level"], 0.3)
+        self.assertIsInstance(out["chain"], list)
+        self.assertGreaterEqual(len(out["chain"]), 1)
+
+    def test_empty_brain_safe(self):
+        """空大脑（无记忆无念头）：安全返回空链"""
+        brain = AIBrainEntity("empty", seed=2)
+        out = brain.stream_of_consciousness(steps=3)
+        self.assertEqual(out["chain"], [])
+        self.assertIsNone(out["final_thought"])
+
+    def test_daydream_zero_no_wander(self):
+        """daydream=0 时不出现 [走神] 标记"""
+        brain = AIBrainEntity("nodream", seed=3)
+        for s in ["记忆是智慧的基石", "神经元在放电"]:
+            brain.sensory_input(s)
+        random.seed(11)
+        out = brain.stream_of_consciousness(steps=4, daydream=0.0)
+        self.assertFalse(any("[走神]" in c for c in out["chain"]))
+
+
+class TestIntrospectDepth(unittest.TestCase):
+    """v5.2 自我意识：basic / deep 内省"""
+
+    def test_basic_entry_fields(self):
+        brain = AIBrainEntity("intro", seed=1)
+        brain.sensory_input("你好世界")
+        entry = brain.introspect(depth="basic")
+        for k in ("tick", "mood", "top_thought", "spike_counts",
+                  "stm", "ltm", "thought_space_size",
+                  "novelty", "attention", "depth", "text"):
+            self.assertIn(k, entry)
+        self.assertEqual(entry["depth"], "basic")
+        self.assertTrue(entry["text"].startswith("我感到"))
+        # 记入元认知日志
+        self.assertEqual(brain.metacog_log[-1], entry)
+
+    def test_deep_differs_from_basic(self):
+        brain = AIBrainEntity("deep", seed=1)
+        brain.sensory_input("量子纠缠很神奇")
+        entry = brain.introspect(depth="deep")
+        # 深度内省包含自我指称与更多内部状态描述
+        self.assertIn("我是deep", entry["text"])
+        self.assertIn("新奇度", entry["text"])
+        self.assertIn("思考空间", entry["text"])
+        # 深度内省言语也回注为 metacog 念头
+        self.assertTrue(any(t.source == "metacog"
+                            for t in brain.thought_space))
+
+
+class TestSocialInteraction(unittest.TestCase):
+    """v5.2 社交互动：发消息 / 文化学习 / 多轮对话"""
+
+    def setUp(self):
+        self.alice = AIBrainEntity("Alice", seed=1)
+        self.bob = AIBrainEntity("Bob", seed=2)
+
+    def test_send_message_marks_social_memory(self):
+        self.alice.send_message(self.bob, "今天天气不错")
+        # 接收方 STM 有 tag="social" 的记忆，记录来源
+        social = [m for m in self.bob.short_memory if m.tag == "social"]
+        self.assertTrue(any("Alice告诉我今天天气不错" in m.content
+                            for m in social))
+        # 接收方思考空间有 source="social" 的念头
+        self.assertTrue(any(t.source == "social"
+                            for t in self.bob.thought_space))
+
+    def test_social_learn_copies_top_memories(self):
+        for s in ["勾股定理", "光速不变", "熵增原理"]:
+            self.bob.sensory_input(s)
+        p0 = self.alice.emotion["pleasure"]
+        out = self.alice.social_learn(self.bob, n_memories=2)
+        self.assertEqual(out["learned_from"], "Bob")
+        self.assertEqual(out["learned_count"], len(out["learned"]))
+        self.assertGreater(out["learned_count"], 0)
+        # 学到的内容固化进 Alice 的 LTM，权重打 7 折
+        src = {m.content: m.weight for m in
+               list(self.bob.long_memory) + list(self.bob.short_memory)}
+        for content in out["learned"]:
+            mine = [m for m in self.alice.long_memory
+                    if m.content == content]
+            self.assertTrue(mine)
+            self.assertAlmostEqual(mine[0].weight,
+                                   src[content] * 0.7, places=6)
+        # 获得新知识带来愉悦
+        self.assertGreater(self.alice.emotion["pleasure"], p0)
+
+    def test_social_learn_skips_known(self):
+        self.bob.sensory_input("唯一知识")
+        first = self.alice.social_learn(self.bob, n_memories=1)
+        second = self.alice.social_learn(self.bob, n_memories=1)
+        self.assertEqual(first["learned_count"], 1)
+        self.assertEqual(second["learned_count"], 0)  # 已知的跳过
+
+    def test_chat_with_turns(self):
+        self.alice.sensory_input("你好")
+        self.bob.sensory_input("我很好")
+        conv = self.alice.chat_with(self.bob, turns=2)
+        self.assertEqual(len(conv), 4)
+        self.assertEqual(conv[0]["speaker"], "Alice")
+        self.assertEqual(conv[1]["speaker"], "Bob")
+        for turn in conv:
+            self.assertIn("turn", turn)
+            self.assertIn("message", turn)
+
+
+class TestEvolution(unittest.TestCase):
+    """v5.2 进化：适应度评估 / 选择 / 多代演化"""
+
+    def test_evaluate_fitness_length_and_tasks(self):
+        swarm = BrainSwarm(["A", "B", "C"], seed=1)
+        swarm.population[0].sensory_input("x" * 30)
+        scores = swarm.evaluate_fitness(task="memory")
+        self.assertEqual(len(scores), 3)
+        for task in ("curiosity", "diversity", "social"):
+            self.assertEqual(len(swarm.evaluate_fitness(task)), 3)
+
+    def test_evolve_generation_preserves_population(self):
+        swarm = BrainSwarm(["A", "B", "C", "D"], seed=2)
+        for i, brain in enumerate(swarm.population):
+            for _ in range(i + 1):
+                brain.sensory_input(f"知识{i}")
+        random.seed(5)
+        stats = swarm.evolve_generation(task="diversity")
+        self.assertEqual(stats["population_size"], 4)
+        self.assertEqual(stats["survivors"] + stats["born"], 4)
+        self.assertEqual(stats["generation"], 2)
+        self.assertEqual(swarm.generation, 2)
+        self.assertEqual(len(swarm.population), 4)
+
+    def test_evolve_history(self):
+        swarm = BrainSwarm(["A", "B", "C", "D"], seed=3)
+        swarm.population[0].sensory_input("优势记忆内容")
+        random.seed(9)
+        out = swarm.evolve(generations=2, task="diversity")
+        self.assertEqual(out["generations"], 2)
+        self.assertEqual(len(out["history"]), 2)
+        self.assertEqual(out["final_population"], 4)
+        self.assertEqual(out["final_generation"], 3)
+        self.assertEqual(len(out["avg_fitness_trend"]), 2)
+        self.assertIn("best_fitness", out)
+
+
+class TestThoughtJournal(unittest.TestCase):
+    """v5.2 念头流水账：所有念头按时间记录，容量封顶 50"""
+
+    def test_journal_records_thoughts(self):
+        brain = AIBrainEntity("journal", seed=1)
+        brain.sensory_input("流水账测试")
+        self.assertGreater(len(brain.thought_journal), 0)
+        entry = brain.thought_journal[-1]
+        self.assertIn("content", entry)
+        self.assertIn("source", entry)
+        self.assertIn("tick", entry)
+
+    def test_journal_capped_at_50(self):
+        brain = AIBrainEntity("cap", seed=1)
+        for i in range(60):
+            brain._push_thought(f"念头{i}", source="internal")
+        self.assertEqual(len(brain.thought_journal), 50)
+        # 最旧的被挤出，最新的一定在
+        self.assertEqual(brain.thought_journal[-1]["content"], "念头59")
+
+
 if __name__ == "__main__":
     unittest.main()

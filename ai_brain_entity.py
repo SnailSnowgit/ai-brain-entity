@@ -372,11 +372,15 @@ class Neuron:
 
 @dataclass
 class BrainMemory:
-    """记忆单元"""
+    """记忆单元（v5.3 增加情绪色彩）"""
     content: str
     timestamp: float
     weight: float    # 记忆权重（强度）
     tag: str         # 记忆标签：sensory / emotion / event / culture / thought
+    modality: str = "text"  # 模态：text / visual / auditory / multimodal
+    features: list = None   # 模态特征向量（用于跨模态联想）
+    emotion: str = "neutral"  # 情绪色彩：positive / negative / neutral
+    emotional_intensity: float = 0.0  # 情绪强度 [0,1]
 
 
 @dataclass
@@ -691,6 +695,12 @@ class AIBrainEntity:
         self.thought_salience = 0.35    # 念头固化进 STM 的激活度阈值
         # v5.0 元认知日志（思考感官 introspect 的记录）
         self.metacog_log: List[Dict] = []
+        # v5.2 念头流水账：每个进入意识的念头留痕（自我意识追溯用）
+        self.thought_journal: List[Dict] = []   # {content, source, tick}
+        # v5.3 自我概念：关于"我是谁"的核心信念集合
+        self.self_concept: List[str] = []       # 自我概念条目
+        # v5.3 自传体记忆：个人经历的时间线（重要事件）
+        self.autobiographical_memory: List[Dict] = []  # {tick, event, emotion, importance}
 
         # v4.8 睡眠-清醒节律：离线重放固化 + 突触稳态缩放（SHY）
         self.sleep_replay_gain = 0.15       # 每次重放的 STM 权重增益
@@ -983,17 +993,23 @@ class AIBrainEntity:
 
     # ------------------ 主入口：感知 -> 认知 ------------------
 
-    def sensory_input(self, data: str) -> str:
+    def sensory_input(self, data: str, modality: str = "text",
+                      features: list = None) -> str:
         """外部文本感官输入入口，返回大脑的行为输出"""
         currents = self._str_to_current(data)
-        return self._perceive(data, currents, tag="sensory")
+        return self._perceive(data, currents, tag="sensory",
+                              modality=modality, features=features)
 
-    def sensory_input_vector(self, vec: List[float], label: str = "") -> str:
+    def sensory_input_vector(self, vec: List[float], label: str = "",
+                             modality: str = "text",
+                             write_memory: bool = True) -> str:
         """多模态接口：接收图像/音频 embedding 等任意数值向量。
 
         v4.0：use_projection=True 时经可学习投影进入感官层（保对比度），
         并顺带对该 embedding 做一步 Oja 在线训练（可关）；否则沿用
         线性插值重采样（向后兼容）。
+
+        write_memory=False 时只注入感官层，不写入记忆（用于辅助特征通道）。
         """
         if self.use_projection:
             proj = self._get_projection(len(vec))
@@ -1003,7 +1019,17 @@ class AIBrainEntity:
         else:
             currents = self._normalize_vector(vec, len(self.sense_layer))
         content = label or f"<vector[{len(vec)}]>"
-        return self._perceive(content, currents, tag="sensory")
+
+        if not write_memory:
+            # 只注入感官层，不走完整感知流水线
+            self.tick += 1
+            external = [c * self.attention_factor for c in currents]
+            self._network_step(external)
+            for _ in range(self.settle_ticks):
+                self._network_step()
+            return ""
+
+        return self._perceive(content, currents, tag="sensory", modality=modality)
 
     # ------------------ 多模态感知（v5.0 听觉/视觉） ------------------
 
@@ -1041,15 +1067,22 @@ class AIBrainEntity:
         if not text:
             text = "[未识别到语音]"
 
-        # 文本通道：作为听到的内容进入感知
-        output = self.sensory_input(text)
+        # 文本通道：作为听到的内容进入感知（同时携带音频特征）
+        output = self.sensory_input(text, modality="auditory",
+                                    features=features)
 
-        # 特征通道：音频特征也注入感官层（增强感知）
+        # 特征通道：音频特征也注入感官层（增强感知，不单独写记忆）
         if features:
-            self.sensory_input_vector(features, label=f"[音频特征]")
+            self.sensory_input_vector(features, label=f"[音频特征]",
+                                      write_memory=False)
 
         # 标记听觉来源（重新推入思考空间并标记来源）
         self._push_thought(text, source="auditory")
+
+        # 跨模态联想：听到声音 → 联想起相关的视觉记忆
+        cross_modal = []
+        if features:
+            cross_modal = self.cross_modal_recall(features, "auditory", top_k=2)
 
         return {
             "text": text,
@@ -1059,6 +1092,7 @@ class AIBrainEntity:
             "novelty": round(self.novelty, 3),
             "emotion": dict(self.emotion),
             "thought_space_size": len(self.thought_space),
+            "cross_modal_recalled": [m.content for m in cross_modal],
             "meta": result.get("meta", {}),
         }
 
@@ -1095,15 +1129,22 @@ class AIBrainEntity:
         if not caption:
             caption = "[未识别出图像内容]"
 
-        # 文本通道：图像描述进入感知
-        output = self.sensory_input(caption)
+        # 文本通道：图像描述进入感知（同时携带图像特征）
+        output = self.sensory_input(caption, modality="visual",
+                                    features=features)
 
-        # 特征通道：图像特征也注入感官层
+        # 特征通道：图像特征也注入感官层（增强感知，不单独写记忆）
         if features:
-            self.sensory_input_vector(features, label=f"[图像特征]")
+            self.sensory_input_vector(features, label=f"[图像特征]",
+                                      write_memory=False)
 
         # 标记视觉来源
         self._push_thought(caption, source="visual")
+
+        # 跨模态联想：看到图像 → 联想起相关的听觉记忆
+        cross_modal = []
+        if features:
+            cross_modal = self.cross_modal_recall(features, "visual", top_k=2)
 
         return {
             "caption": caption,
@@ -1111,6 +1152,7 @@ class AIBrainEntity:
             "novelty": round(self.novelty, 3),
             "emotion": dict(self.emotion),
             "thought_space_size": len(self.thought_space),
+            "cross_modal_recalled": [m.content for m in cross_modal],
             "meta": result.get("meta", {}),
         }
 
@@ -1166,7 +1208,11 @@ class AIBrainEntity:
     def _push_thought(self, content: str, source: str = "internal",
                       activation: float = 1.0):
         """念头进入思考空间。同内容念头重新激活而非重复入栈；
-        超出容量时挤出激活度最低的念头。"""
+        超出容量时挤出激活度最低的念头。v5.2：同时记入念头流水账。"""
+        self.thought_journal.append(
+            {"content": content, "source": source, "tick": self.tick})
+        if len(self.thought_journal) > 50:
+            self.thought_journal.pop(0)
         for t in self.thought_space:
             if t.content == content:
                 t.activation = 1.0
@@ -1191,7 +1237,9 @@ class AIBrainEntity:
             return None
         return max(self.thought_space, key=lambda t: t.activation)
 
-    def _perceive(self, content: str, input_currents: List[float], tag: str) -> str:
+    def _perceive(self, content: str, input_currents: List[float],
+                  tag: str, modality: str = "text",
+                  features: list = None) -> str:
         """统一的感知-认知流水线"""
         self.tick += 1
         self.sensory_buffer.append(content)
@@ -1226,7 +1274,7 @@ class AIBrainEntity:
         self._modulate_attention()
 
         # 写入短期记忆（可能触发固化进 LTM / 遗忘）
-        self._write_stm(content, tag=tag)
+        self._write_stm(content, tag=tag, modality=modality, features=features)
 
         # 记录历史
         if self.record_history:
@@ -1398,13 +1446,16 @@ class AIBrainEntity:
 
     # ------------------ 记忆系统 ------------------
 
-    def _write_stm(self, content: str, tag: str = "sensory"):
+    def _write_stm(self, content: str, tag: str = "sensory",
+                   modality: str = "text", features: list = None):
         """写入短期记忆；容量满时：强者固化进 LTM，弱者自然遗忘"""
         mem = BrainMemory(
             content=content,
             timestamp=time.time(),
             weight=self.attention_factor,
             tag=tag,
+            modality=modality,
+            features=features if features is not None else [],
         )
         self.short_memory.append(mem)
 
@@ -1505,6 +1556,53 @@ class AIBrainEntity:
             self._push_thought(m.content, source="memory", activation=0.8)
         return unique[:top_k]
 
+    def cross_modal_recall(self, features: list, current_modality: str,
+                           top_k: int = 2) -> List[BrainMemory]:
+        """跨模态联想：根据特征向量，从其他模态的记忆中找相似的。
+
+        比如：看到一张猫的图片（visual特征），想起之前听到的"喵"的声音（auditory记忆）。
+
+        原理：计算特征向量的余弦相似度，找最相似的其他模态记忆。
+        """
+        if not features or len(features) == 0:
+            return []
+
+        def cosine_sim(a, b):
+            """余弦相似度"""
+            if not a or not b or len(a) != len(b):
+                return 0.0
+            dot = sum(x * y for x, y in zip(a, b))
+            norm_a = sum(x * x for x in a) ** 0.5
+            norm_b = sum(x * x for x in b) ** 0.5
+            if norm_a == 0 or norm_b == 0:
+                return 0.0
+            return dot / (norm_a * norm_b)
+
+        # 搜索所有记忆，找其他模态中特征相似的
+        candidates = []
+        for m in self.long_memory + self.short_memory:
+            # 跳过同一模态的（跨模态才有意思）
+            if m.modality == current_modality:
+                continue
+            # 跳过没有特征的
+            if not m.features or len(m.features) != len(features):
+                continue
+            sim = cosine_sim(features, m.features)
+            if sim > 0.3:  # 相似度阈值
+                candidates.append((m, sim))
+
+        # 按相似度排序
+        candidates.sort(key=lambda x: x[1], reverse=True)
+        results = [m for m, sim in candidates[:top_k]]
+
+        # 跨模态联想的记忆进入思考空间（带"联想起"的感觉）
+        for m in results:
+            self._push_thought(m.content, source="memory", activation=0.7)
+            # 跨模态联想强化记忆
+            m.weight = self._clip(m.weight + 0.08)
+
+        return results
+
     # ------------------ 情景记忆时间索引（v4.7） ------------------
 
     def episodic_trace(self, keyword: str) -> List[Dict]:
@@ -1584,12 +1682,16 @@ class AIBrainEntity:
                               for t in self.thought_space],
         }
 
-    def introspect(self) -> Dict:
+    def introspect(self, depth: str = "basic") -> Dict:
         """思考感官（内感觉 interoception）：感知自己的脑活动。
 
         读取主导情绪、三层脉冲数、记忆占用、思考空间焦点，生成内省
         言语并把它作为内部刺激回注网络（自我感知回路），同时记入
         metacog_log 元认知日志。外部感官看世界，思考感官看自己。
+
+        depth:
+            - "basic": 基础内省（情绪 + 当前念头）
+            - "deep": 深度内省（完整思考空间 + 记忆分布 + 自我认知）
         """
         s, a, d = self.spike_counts()
         mood = max(self.emotion, key=lambda k: self.emotion[k])
@@ -1597,9 +1699,37 @@ class AIBrainEntity:
                    "stress": "紧张", "pleasure": "愉悦"}.get(mood, mood)
         top = self.top_thought()
         top_content = top.content if top else "（空）"
-        text = (f"我感到{mood_cn}，正在想「{top_content}」，"
-                f"脉冲活动{s}/{a}/{d}，"
-                f"记忆{len(self.short_memory)}/{len(self.long_memory)}")
+
+        if depth == "basic":
+            text = (f"我感到{mood_cn}，正在想「{top_content}」，"
+                    f"脉冲活动{s}/{a}/{d}，"
+                    f"记忆{len(self.short_memory)}/{len(self.long_memory)}")
+        else:
+            # 深度内省：感知更多内部状态
+            thought_count = len(self.thought_space)
+            novelty_level = round(self.novelty, 2)
+            attention_level = round(self.attention_factor, 2)
+
+            # 记忆模态分布
+            modality_dist = {}
+            for m in self.long_memory:
+                modality_dist[m.modality] = modality_dist.get(m.modality, 0) + 1
+            mod_desc = "、".join(f"{k}:{v}" for k, v in modality_dist.items()) \
+                if modality_dist else "无"
+
+            # 思考空间内容摘要
+            thoughts_summary = "、".join(
+                t.content[:8] for t in self.thought_space[:3])
+            if thought_count > 3:
+                thoughts_summary += f"...等{thought_count}个念头"
+
+            text = (f"我是{self.name}，感到{mood_cn}。"
+                    f"正在想「{top_content}」。"
+                    f"思考空间有{thoughts_summary}。"
+                    f"新奇度{novelty_level}，注意力{attention_level}。"
+                    f"记忆：短期{len(self.short_memory)}条，"
+                    f"长期{len(self.long_memory)}条（{mod_desc}）。"
+                    f"神经活动：感官{s}/联想{a}/决策{d}。")
 
         # 内省言语回注网络（强度 0.5 倍），并作为元认知念头入思考空间
         self.tick += 1
@@ -1610,11 +1740,441 @@ class AIBrainEntity:
                  "spike_counts": [s, a, d],
                  "stm": len(self.short_memory),
                  "ltm": len(self.long_memory),
+                 "thought_space_size": len(self.thought_space),
+                 "novelty": round(self.novelty, 3),
+                 "attention": round(self.attention_factor, 3),
+                 "depth": depth,
                  "text": text}
         self.metacog_log.append(entry)
         if self.record_history:
             self._record()
         return entry
+
+    def self_reflect(self, focus: str = "general") -> Dict:
+        """自我反思：对自己的思维、情绪、行为进行反思（v5.3 新增）。
+
+        这是更高阶的元认知：不只是感知自己的状态，
+        而是对自己的状态进行评价和思考。
+
+        focus:
+            - "general": 整体反思
+            - "thought": 反思自己的思考过程
+            - "emotion": 反思自己的情绪
+            - "memory": 反思自己的记忆
+        """
+        s, a, d = self.spike_counts()
+        mood = max(self.emotion, key=lambda k: self.emotion[k])
+        mood_cn = {"calm": "平静", "curiosity": "好奇",
+                   "stress": "紧张", "pleasure": "愉悦"}.get(mood, mood)
+
+        if focus == "thought":
+            # 反思思考过程
+            n_thoughts = len(self.thought_space)
+            top = self.top_thought()
+            top_content = top.content if top else "（空）"
+            text = (f"我在想「{top_content}」。"
+                    f"思考空间里有{n_thoughts}个念头。"
+                    f"我的思绪是{'集中' if self.attention_factor > 0.6 else '分散'}的。")
+        elif focus == "emotion":
+            # 反思情绪
+            emotion_values = {k: round(v, 2) for k, v in self.emotion.items()}
+            text = (f"我现在感到{mood_cn}。"
+                    f"情绪状态：{emotion_values}。"
+                    f"这种情绪是{'合适的' if self.emotion[mood] < 0.8 else '有点强烈'}。")
+        elif focus == "memory":
+            # 反思记忆
+            n_stm = len(self.short_memory)
+            n_ltm = len(self.long_memory)
+            text = (f"我有{n_stm}条短期记忆，{n_ltm}条长期记忆。"
+                    f"我记得{'很多事情' if n_ltm > 10 else '一些事情'}。"
+                    f"我的记忆{'很清晰' if n_ltm > 50 else '还在积累中'}。")
+        else:
+            # 整体反思
+            n_self_concept = len(self.self_concept)
+            n_auto = len(self.autobiographical_memory)
+            text = (f"我是{self.name}。"
+                    f"我感到{mood_cn}。"
+                    f"我有{n_self_concept}条自我认知，{n_auto}段重要经历。"
+                    f"我正在不断学习和成长。")
+
+        # 反思内容回注网络，并作为元认知念头
+        self.tick += 1
+        self._network_step([c * 0.4 for c in self._str_to_current(text)])
+        self._push_thought(text, source="metacog")
+
+        # 记录反思日志
+        reflection = {
+            "tick": self.tick,
+            "focus": focus,
+            "mood": mood,
+            "text": text,
+            "thought_count": len(self.thought_space),
+            "memory_count": len(self.long_memory),
+        }
+        self.metacog_log.append({"type": "reflection", **reflection})
+
+        return reflection
+
+    def update_self_concept(self, belief: str):
+        """更新自我概念：添加一条关于"我是谁"的信念。
+
+        自我概念是一个人对自己的认知："我是聪明的"、"我是善良的"等。
+        这些信念会影响感知、思考和行为。
+        """
+        if belief not in self.self_concept:
+            self.self_concept.append(belief)
+            # 自我概念也写入长期记忆
+            self._write_stm(f"我认为：{belief}", tag="self")
+            return True
+        return False
+
+    def add_autobiographical_memory(self, event: str, emotion: str = "neutral",
+                                    importance: float = 0.5):
+        """添加自传体记忆：记录一段重要的个人经历。
+
+        自传体记忆构成了"我是谁"的故事——
+        我的过去、我的经历、我的成长。
+        """
+        memory = {
+            "tick": self.tick,
+            "event": event,
+            "emotion": emotion,
+            "importance": importance,
+        }
+        self.autobiographical_memory.append(memory)
+        # 重要经历写入长期记忆
+        self._write_stm(f"我记得：{event}", tag="autobiographical")
+        return memory
+
+    def get_self_summary(self) -> Dict:
+        """获取自我摘要：整合自我概念和自传体记忆。
+
+        这就是"我是谁"的完整答案。
+        """
+        return {
+            "name": self.name,
+            "generation": self.generation,
+            "self_concept": self.self_concept,
+            "autobiographical_count": len(self.autobiographical_memory),
+            "key_memories": [m["event"] for m in
+                             sorted(self.autobiographical_memory,
+                                    key=lambda m: m["importance"],
+                                    reverse=True)[:5]],
+            "mood": max(self.emotion, key=lambda k: self.emotion[k]),
+            "ltm_count": len(self.long_memory),
+            "thought_count": len(self.thought_space),
+        }
+
+    def stream_of_consciousness(self, steps: int = 5,
+                                daydream: float = 0.3) -> Dict:
+        """意识流：自由联想、白日梦、灵感闪现（v5.3 增强版）。
+
+        大脑在没有外部输入时，思绪自发流动：
+        1. 从当前念头出发，自由联想
+        2. 一个念头引出另一个念头，形成链条
+        3. 偶尔有灵感闪现（两个概念的新组合）
+        4. 白日梦模式：思绪更容易飘走
+
+        v5.3 增强：
+        - 心境一致性效应：情绪影响思绪流向
+        - 注意力影响：注意力高时联想更聚焦
+        - 链式联想：多步联想，语义距离衰减
+
+        参数:
+            steps: 意识流步数
+            daydream: 白日梦程度 [0,1]，越高越容易走神
+
+        返回:
+            chain: 意识流链条（念头列表）
+            insights: 灵感闪现的内容
+            final_thought: 最终停留在哪个念头上
+            emotional_shifts: 情绪变化次数
+        """
+        import random
+        chain = []
+        insights = []
+        emotional_shifts = 0
+
+        # 获取当前主导情绪
+        current_mood = max(self.emotion, key=lambda k: self.emotion[k])
+
+        for i in range(steps):
+            # 取当前最活跃的念头
+            top = self.top_thought()
+            if top is None:
+                # 思考空间空了，从记忆里随机捞一个
+                all_mem = self.long_memory + self.short_memory
+                if all_mem:
+                    # 心境一致性：优先选情绪一致的记忆
+                    mem = self._mood_consistent_pick(all_mem, current_mood)
+                    self._push_thought(mem.content, source="memory",
+                                       activation=0.6)
+                    chain.append(f"[浮现] {mem.content}")
+                    continue
+                else:
+                    break
+
+            current = top.content
+            chain.append(current)
+
+            # 降低当前念头的激活度（让它逐渐淡出，给其他念头机会）
+            top.activation *= 0.5
+
+            # 注意力影响：注意力越低，越容易走神
+            effective_daydream = daydream * (1.5 - self.attention_factor)
+
+            # 白日梦：有概率跳到完全不相关的记忆
+            if random.random() < effective_daydream:
+                all_mem = self.long_memory + self.short_memory
+                if all_mem:
+                    mem = random.choice(all_mem)
+                    if mem.content != current:
+                        self._push_thought(mem.content, source="memory",
+                                           activation=0.7)
+                        chain.append(f"[走神] → {mem.content}")
+                        # 检测情绪变化
+                        if mem.emotion != "neutral" and mem.emotion != current_mood:
+                            emotional_shifts += 1
+                        continue
+
+            # 正常联想：从当前念头出发，回忆相关记忆
+            recalled = []
+            # 尝试用关键词联想
+            words = current.replace("，", " ").replace("。", " ").split()
+            if words:
+                # 注意力高时，选最相关的词；注意力低时，随机选
+                if self.attention_factor > 0.6:
+                    # 选最长的词（通常更有意义）
+                    keyword = max(words, key=len)
+                else:
+                    keyword = random.choice(words)
+                if len(keyword) >= 2:
+                    recalled = self.recall(keyword, top_k=3)
+
+            # 心境一致性：优先联想情绪一致的记忆
+            if recalled:
+                # 按情绪一致性排序
+                mood_consistent = [m for m in recalled
+                                   if m.emotion == current_mood]
+                mood_neutral = [m for m in recalled if m.emotion == "neutral"]
+                mood_inconsistent = [m for m in recalled
+                                     if m.emotion not in (current_mood, "neutral")]
+                # 重新排序：情绪一致 > 中性 > 不一致
+                sorted_recalled = mood_consistent + mood_neutral + mood_inconsistent
+                recalled = sorted_recalled
+
+            # 如果联想起了新记忆，用它作为下一个念头
+            new_thought = None
+            for m in recalled:
+                if m.content != current:
+                    new_thought = m
+                    break
+
+            if new_thought:
+                # 链式联想：激活度随距离衰减
+                activation = 0.8 * (0.9 ** i)
+                self._push_thought(new_thought.content, source="memory",
+                                   activation=activation)
+                chain.append(f"[联想] → {new_thought.content}")
+                # 检测情绪变化
+                if (new_thought.emotion != "neutral"
+                        and new_thought.emotion != current_mood):
+                    emotional_shifts += 1
+                    current_mood = new_thought.emotion
+                continue
+
+            # 灵感闪现：有概率把两个记忆组合成新想法
+            all_mem = self.long_memory + self.short_memory
+            if (random.random() < 0.15 and len(all_mem) >= 2):
+                # 灵感更容易在注意力不集中时出现（发散思维）
+                inspiration_bonus = 1.0 - self.attention_factor
+                if random.random() < 0.5 + inspiration_bonus * 0.5:
+                    m1 = random.choice(all_mem)
+                    m2 = random.choice(all_mem)
+                    if m1.content != m2.content:
+                        insight = f"{m1.content} + {m2.content}"
+                        insights.append(insight)
+                        self._push_thought(insight, source="internal",
+                                           activation=0.9)
+                        chain.append(f"[灵感!] {insight}")
+                        continue
+
+            # 衰减思考空间，让旧念头淡出
+            self._decay_thoughts()
+
+            # 网络自由演化一步
+            self.tick += 1
+            self._network_step()
+
+        # 最终状态
+        final = self.top_thought()
+        final_content = final.content if final else None
+
+        return {
+            "chain": chain,
+            "insights": insights,
+            "final_thought": final_content,
+            "thought_space_size": len(self.thought_space),
+            "daydream_level": daydream,
+            "emotional_shifts": emotional_shifts,
+            "final_mood": current_mood,
+        }
+
+    def _mood_consistent_pick(self, memories: list, mood: str):
+        """心境一致性：优先选择情绪与当前心境一致的记忆。
+
+        积极情绪时更容易想到积极记忆，消极情绪时更容易想到消极记忆。
+        """
+        import random
+        # 按情绪分类
+        consistent = [m for m in memories if m.emotion == mood]
+        neutral = [m for m in memories if m.emotion == "neutral"]
+        inconsistent = [m for m in memories
+                        if m.emotion not in (mood, "neutral")]
+
+        # 概率权重：一致的 60%，中性 30%，不一致 10%
+        r = random.random()
+        if consistent and r < 0.6:
+            return random.choice(consistent)
+        elif neutral and r < 0.9:
+            return random.choice(neutral)
+        elif inconsistent:
+            return random.choice(inconsistent)
+        else:
+            return random.choice(memories)
+
+    # ------------------ 社交互动（v5.2） ------------------
+
+    def send_message(self, other_brain: 'AIBrainEntity', message: str) -> Dict:
+        """向另一个大脑发送消息。
+
+        发送方：消息进入自己的思考空间（"我说了什么"）
+        接收方：调用 receive_message 接收
+        """
+        # 自己也会意识到自己说了什么
+        self._push_thought(f"对{other_brain.name}说：{message}",
+                           source="internal")
+        # 对方接收
+        result = other_brain.receive_message(self, message)
+        return {"sent": message, "to": other_brain.name,
+                "reaction": result}
+
+    def receive_message(self, sender: 'AIBrainEntity', message: str) -> Dict:
+        """接收另一个大脑的消息（v5.3 增强：情感传染）。
+
+        消息作为外部输入进入感知流水线，
+        同时记住"是谁说的"（社交记忆）。
+
+        v5.3 增强：
+        - 情感传染：发送方的情绪会影响接收方
+        - 共情：能感知对方的情绪状态
+        """
+        # 消息内容进入感知
+        output = self.sensory_input(message, modality="text")
+        # 标记来源：来自某个大脑
+        self._push_thought(f"{sender.name}说：{message}",
+                           source="social")
+        # 形成社交记忆：谁对我说了什么
+        social_mem = f"{sender.name}告诉我{message}"
+        self._write_stm(social_mem, tag="social")
+
+        # 情感传染：发送方的情绪会影响接收方
+        sender_mood = max(sender.emotion, key=lambda k: sender.emotion[k])
+        sender_mood_intensity = sender.emotion[sender_mood]
+        # 传染强度：取决于关系亲密度（这里简化为0.3）
+        contagion_strength = 0.3 * sender_mood_intensity
+        if sender_mood in self.emotion:
+            self.emotion[sender_mood] = self._clip(
+                self.emotion[sender_mood] + contagion_strength)
+
+        # 共情：感知对方的情绪
+        empathy_text = f"我感觉到{sender.name}的情绪是{sender_mood}"
+        self._push_thought(empathy_text, source="social")
+
+        return {
+            "from": sender.name,
+            "message": message,
+            "output": output,
+            "novelty": round(self.novelty, 3),
+            "emotion": dict(self.emotion),
+            "sender_mood": sender_mood,
+            "emotional_contagion": round(contagion_strength, 3),
+        }
+
+    def social_learn(self, other_brain: 'AIBrainEntity',
+                     n_memories: int = 3) -> Dict:
+        """从另一个大脑学习：复制部分记忆（文化传播）。
+
+        就像人从别人那里学到知识、价值观、故事一样。
+        优先学习对方权重最高的记忆（最重要的知识）。
+        同时从 LTM 和 STM 中选取。
+        """
+        # 取对方权重最高的记忆（LTM + STM 合并排序）
+        all_memories = list(other_brain.long_memory) + \
+                       list(other_brain.short_memory)
+        all_memories.sort(key=lambda m: m.weight, reverse=True)
+        learned = []
+
+        for mem in all_memories[:n_memories]:
+            # 检查是否已经知道了
+            already_known = any(m.content == mem.content
+                                for m in self.long_memory)
+            if not already_known:
+                # 复制记忆（权重打个折，因为是听来的，不是亲身经历）
+                self._write_stm(mem.content, tag="culture",
+                                modality=mem.modality,
+                                features=mem.features)
+                # 直接固化进 LTM（重要的文化知识）
+                if len(self.short_memory) > 0:
+                    new_mem = self.short_memory[-1]
+                    new_mem.weight = mem.weight * 0.7  # 二手记忆权重低一些
+                    self._consolidate_to_ltm(new_mem)
+                learned.append(mem.content)
+
+        # 学习后会感到愉悦（获得新知识）
+        self.emotion["pleasure"] = self._clip(
+            self.emotion["pleasure"] + 0.1 * len(learned))
+
+        return {
+            "learned_from": other_brain.name,
+            "learned_count": len(learned),
+            "learned": learned,
+            "total_ltm": len(self.long_memory),
+        }
+
+    def chat_with(self, other_brain: 'AIBrainEntity',
+                  turns: int = 3) -> List[Dict]:
+        """和另一个大脑对话（多轮交流）。
+
+        两个大脑轮流说话，每方说 turns 轮。
+        对话内容会进入双方的思考空间，形成共同记忆。
+        """
+        conversation = []
+        current_speaker = self
+        current_listener = other_brain
+
+        for i in range(turns * 2):
+            # 说话方：基于当前思考空间生成一句话
+            top = current_speaker.top_thought()
+            if top:
+                # 简单的对话生成：提取当前念头的关键词
+                msg = top.content[:20]  # 简化：直接用当前念头的前20字
+            else:
+                msg = "..."
+
+            # 发送消息
+            result = current_speaker.send_message(current_listener, msg)
+            conversation.append({
+                "turn": i + 1,
+                "speaker": current_speaker.name,
+                "message": msg,
+            })
+
+            # 交换角色
+            current_speaker, current_listener = \
+                current_listener, current_speaker
+
+        return conversation
 
     # ------------------ 决策中枢 ------------------
 
@@ -2893,6 +3453,453 @@ class BrainSwarm:
         self.population.append(child)
         self.generation += 1
         return child
+
+    # ------------------ 进化机制（v5.2） ------------------
+
+    def evaluate_fitness(self, task: str = "memory") -> List[float]:
+        """评估种群中每个个体的适应度。
+
+        task:
+            - "memory": 记忆能力（LTM数量 + 平均权重）
+            - "curiosity": 好奇心水平
+            - "diversity": 记忆多样性（不同内容数）
+            - "social": 社交能力（社交记忆数量）
+        """
+        fitness_scores = []
+        for brain in self.population:
+            if task == "memory":
+                # 记忆能力：LTM数量 × 平均权重
+                n_ltm = len(brain.long_memory)
+                avg_weight = (sum(m.weight for m in brain.long_memory) / n_ltm
+                              if n_ltm > 0 else 0)
+                fitness = n_ltm * avg_weight
+            elif task == "curiosity":
+                # 好奇心：新奇度响应强度
+                fitness = brain.emotion.get("curiosity", 0)
+            elif task == "diversity":
+                # 记忆多样性：不同内容的数量
+                unique_contents = {m.content for m in brain.long_memory}
+                fitness = len(unique_contents)
+            elif task == "social":
+                # 社交能力：社交记忆数量
+                social_mem = [m for m in brain.long_memory if m.tag == "social"]
+                fitness = len(social_mem)
+            else:
+                fitness = len(brain.long_memory)
+            fitness_scores.append(fitness)
+        return fitness_scores
+
+    def select(self, fitness_scores: List[float],
+               n_survive: int = None) -> List[int]:
+        """自然选择：按适应度比例选择存活个体（轮盘赌选择）。
+
+        返回存活个体的索引列表。
+        """
+        n = len(self.population)
+        if n_survive is None:
+            n_survive = n // 2  # 默认淘汰一半
+
+        total_fitness = sum(fitness_scores)
+        if total_fitness == 0:
+            # 适应度都为0，随机选
+            return random.sample(range(n), n_survive)
+
+        # 轮盘赌选择
+        survivors = []
+        probs = [f / total_fitness for f in fitness_scores]
+        for _ in range(n_survive):
+            r = random.random()
+            cumsum = 0
+            for i, p in enumerate(probs):
+                cumsum += p
+                if r <= cumsum and i not in survivors:
+                    survivors.append(i)
+                    break
+            else:
+                # 没选到（概率问题），随机选一个
+                candidates = [i for i in range(n) if i not in survivors]
+                if candidates:
+                    survivors.append(random.choice(candidates))
+
+        return survivors[:n_survive]
+
+    def evolve_generation(self, task: str = "memory",
+                          mutation_rate: float = 0.02,
+                          n_children: int = None,
+                          sexual: bool = False) -> Dict:
+        """进化一代：评估 → 选择 → 繁殖 → 变异。
+
+        流程：
+        1. 评估所有个体的适应度
+        2. 选择适应度高的个体存活
+        3. 存活个体繁殖后代，补充种群数量
+        4. 后代有小幅变异
+
+        参数:
+            sexual: 是否使用有性繁殖（两个父代的DNA重组）
+
+        返回进化统计信息。
+        """
+        n = len(self.population)
+        if n_children is None:
+            n_children = n // 2  # 默认繁殖一半数量的后代
+
+        # 1. 评估适应度
+        fitness = self.evaluate_fitness(task)
+        best_fitness = max(fitness)
+        avg_fitness = sum(fitness) / n
+
+        # 2. 选择存活者
+        n_survive = n - n_children
+        survivors = self.select(fitness, n_survive=n_survive)
+
+        # 3. 淘汰弱者，保留强者
+        old_population = self.population[:]
+        self.population = [old_population[i] for i in survivors]
+
+        # 4. 繁殖后代，补充种群
+        n_born = 0
+        for i in range(n_children):
+            if sexual and len(survivors) >= 2:
+                # 有性繁殖：选两个父代，DNA重组
+                parent1_idx, parent2_idx = random.sample(survivors, 2)
+                parent1 = old_population[parent1_idx]
+                parent2 = old_population[parent2_idx]
+                child_name = f"{parent1.name[:4]}_{parent2.name[:4]}_g{self.generation + 1}_{i + 1}"
+                child = self.sexual_reproduce(parent1, parent2,
+                                              child_name, mutation_rate)
+            else:
+                # 无性繁殖：克隆 + 变异
+                parent_idx = random.choice(survivors)
+                parent = old_population[parent_idx]
+                child_name = f"{parent.name}_g{self.generation + 1}_{i + 1}"
+                dna = parent.dump_dna()
+                # 变异：突触权重随机扰动
+                for k in dna["synapse"]:
+                    dna["synapse"][k] = min(1.0, max(0.0,
+                        dna["synapse"][k] + random.uniform(-mutation_rate,
+                                                            mutation_rate)))
+                # 记忆也有小概率变异（文化变异）
+                for m in dna["long_memory"]:
+                    if random.random() < mutation_rate:
+                        m["weight"] = min(1.0, max(0.0,
+                            m["weight"] + random.uniform(-0.1, 0.1)))
+                child = AIBrainEntity.from_dna(dna, new_name=child_name)
+
+            child.generation = self.generation + 1
+            self.population.append(child)
+            n_born += 1
+
+        self.generation += 1
+
+        # 新种群的适应度
+        new_fitness = self.evaluate_fitness(task)
+        new_best = max(new_fitness)
+        new_avg = sum(new_fitness) / len(self.population)
+
+        return {
+            "generation": self.generation,
+            "task": task,
+            "population_size": len(self.population),
+            "survivors": n_survive,
+            "born": n_born,
+            "sexual": sexual,
+            "old_best_fitness": round(best_fitness, 3),
+            "old_avg_fitness": round(avg_fitness, 3),
+            "new_best_fitness": round(new_best, 3),
+            "new_avg_fitness": round(new_avg, 3),
+            "fitness_improvement": round(new_avg - avg_fitness, 3),
+        }
+
+    def sexual_reproduce(self, parent1: AIBrainEntity, parent2: AIBrainEntity,
+                         child_name: str, mutation_rate: float = 0.02
+                         ) -> AIBrainEntity:
+        """有性繁殖：两个父代的DNA重组（基因重组）。
+
+        模拟生物的有性生殖：
+        - 突触权重：随机从父1或父2继承（交叉互换）
+        - 记忆：随机从父1或父2继承各一半
+        - 变异：后代有小幅随机变异
+
+        有性繁殖的好处：基因组合更多样，进化更快。
+        """
+        dna1 = parent1.dump_dna()
+        dna2 = parent2.dump_dna()
+
+        # 创建子代DNA
+        child_dna = parent1.dump_dna()  # 先用父1的DNA做模板
+
+        # 突触权重重组：每个突触随机从父1或父2继承
+        for k in child_dna["synapse"]:
+            if random.random() < 0.5:
+                child_dna["synapse"][k] = dna2["synapse"].get(k, 0.5)
+            # 变异
+            child_dna["synapse"][k] = min(1.0, max(0.0,
+                child_dna["synapse"][k] + random.uniform(-mutation_rate,
+                                                        mutation_rate)))
+
+        # 记忆重组：从父1和父2各随机选一半记忆
+        mem1 = dna1["long_memory"]
+        mem2 = dna2["long_memory"]
+        n_from_1 = len(mem1) // 2
+        n_from_2 = len(mem2) // 2
+        child_mem = (random.sample(mem1, min(n_from_1, len(mem1))) +
+                     random.sample(mem2, min(n_from_2, len(mem2))))
+        child_dna["long_memory"] = child_mem
+
+        # 创建子代
+        child = AIBrainEntity.from_dna(child_dna, new_name=child_name)
+        return child
+
+    def genetic_distance(self, brain1: AIBrainEntity,
+                         brain2: AIBrainEntity) -> float:
+        """计算两个大脑的遗传距离（DNA差异程度）。
+
+        距离越大，两个个体的差异越大。
+        当距离超过阈值时，可以认为是不同的物种。
+        """
+        dna1 = brain1.dump_dna()
+        dna2 = brain2.dump_dna()
+
+        # 计算突触权重的差异（欧氏距离）
+        synapse_diff = 0
+        n_synapse = 0
+        for k in dna1["synapse"]:
+            if k in dna2["synapse"]:
+                synapse_diff += (dna1["synapse"][k] - dna2["synapse"][k]) ** 2
+                n_synapse += 1
+
+        avg_diff = (synapse_diff / n_synapse) ** 0.5 if n_synapse > 0 else 0
+        return round(avg_diff, 4)
+
+    def detect_species(self, threshold: float = 0.3) -> Dict:
+        """物种检测：根据遗传距离将种群分成不同的物种。
+
+        当两个个体的遗传距离超过阈值时，它们属于不同的物种。
+        这就是物种形成（speciation）。
+        """
+        n = len(self.population)
+        if n == 0:
+            return {"species_count": 0, "species": []}
+
+        # 简单的聚类：每个个体和第一个个体比较
+        species = []  # [[个体索引列表], ...]
+        for i in range(n):
+            assigned = False
+            for sp in species:
+                # 和该物种的第一个个体比较
+                dist = self.genetic_distance(self.population[i],
+                                             self.population[sp[0]])
+                if dist < threshold:
+                    sp.append(i)
+                    assigned = True
+                    break
+            if not assigned:
+                species.append([i])
+
+        # 按物种大小排序
+        species.sort(key=len, reverse=True)
+
+        return {
+            "species_count": len(species),
+            "threshold": threshold,
+            "species": [
+                {
+                    "size": len(sp),
+                    "members": [self.population[i].name for i in sp],
+                    "representative": self.population[sp[0]].name,
+                }
+                for sp in species
+            ],
+        }
+
+    def evolve(self, generations: int = 10, task: str = "memory",
+               mutation_rate: float = 0.02,
+               sexual: bool = False) -> Dict:
+        """进化多代，返回进化轨迹。
+
+        模拟达尔文式的自然选择：适者生存，不适者淘汰；
+        优秀个体繁殖后代，后代带有随机变异。
+
+        参数:
+            sexual: 是否使用有性繁殖
+        """
+        history = []
+        for g in range(generations):
+            stats = self.evolve_generation(
+                task=task, mutation_rate=mutation_rate, sexual=sexual)
+            history.append(stats)
+        return {
+            "generations": generations,
+            "task": task,
+            "sexual": sexual,
+            "final_population": len(self.population),
+            "final_generation": self.generation,
+            "history": history,
+            "best_fitness": max(h["new_best_fitness"] for h in history),
+            "avg_fitness_trend": [h["new_avg_fitness"] for h in history],
+        }
+
+    # ------------------ 群体动力学与文化演化（v5.3） ------------------
+
+    def group_emotion(self) -> Dict[str, float]:
+        """计算群体平均情绪（群体情绪状态）。
+
+        返回每种情绪的群体平均值。
+        """
+        n = len(self.population)
+        if n == 0:
+            return {}
+        avg_emotion = {}
+        for brain in self.population:
+            for k, v in brain.emotion.items():
+                avg_emotion[k] = avg_emotion.get(k, 0) + v
+        return {k: round(v / n, 3) for k, v in avg_emotion.items()}
+
+    def group_polarization(self) -> Dict:
+        """计算群体极化程度。
+
+        极化 = 情绪分布的方差——方差越大，极化越严重。
+        当群体分裂成对立的阵营时，极化程度会升高。
+        """
+        n = len(self.population)
+        if n < 2:
+            return {"polarization": 0.0, "dominant_mood": "calm"}
+
+        # 计算每种情绪的方差
+        avg_emotion = self.group_emotion()
+        variances = {}
+        for mood in avg_emotion:
+            variance = sum((b.emotion[mood] - avg_emotion[mood]) ** 2
+                           for b in self.population) / n
+            variances[mood] = round(variance, 4)
+
+        # 总体极化程度 = 各情绪方差的平均
+        total_polarization = round(sum(variances.values()) / len(variances), 4)
+
+        # 主导情绪
+        dominant = max(avg_emotion, key=lambda k: avg_emotion[k])
+
+        return {
+            "polarization": total_polarization,
+            "dominant_mood": dominant,
+            "avg_emotion": avg_emotion,
+            "emotion_variances": variances,
+        }
+
+    def cultural_diversity(self) -> Dict:
+        """计算文化多样性。
+
+        多样性 = 群体中独特记忆的数量 / 总记忆数量。
+        多样性高 = 每个人知道的东西都不一样；
+        多样性低 = 大家都知道同样的东西（共识高）。
+        """
+        all_memories = set()
+        total_memories = 0
+        for brain in self.population:
+            for m in brain.long_memory:
+                all_memories.add(m.content)
+                total_memories += 1
+
+        unique_count = len(all_memories)
+        diversity = unique_count / total_memories if total_memories > 0 else 0
+
+        # 共识度 = 1 - 多样性
+        consensus = 1.0 - diversity
+
+        return {
+            "unique_memories": unique_count,
+            "total_memories": total_memories,
+            "diversity": round(diversity, 3),
+            "consensus": round(consensus, 3),
+        }
+
+    def cultural_evolution_step(self, mutation_rate: float = 0.05) -> Dict:
+        """文化演化一步：模因的传播 + 变异。
+
+        模拟文化在群体中的演化：
+        1. 随机选取个体对进行文化交流
+        2. 模因从一个大脑传播到另一个大脑
+        3. 传播过程中有小概率发生变异（文化漂移）
+
+        这就是模因（meme）的演化——和基因演化类似，
+        但载体是文化信息，演化速度快得多。
+        """
+        import random
+        n = len(self.population)
+        if n < 2:
+            return {"transmitted": 0, "mutated": 0}
+
+        transmitted = 0
+        mutated = 0
+
+        # 随机选 N 对个体进行文化交流
+        for _ in range(n):
+            i, j = random.sample(range(n), 2)
+            teacher = self.population[i]
+            student = self.population[j]
+
+            # 老师随机选一条记忆传给学生
+            all_mem = teacher.long_memory + teacher.short_memory
+            if not all_mem:
+                continue
+            mem = random.choice(all_mem)
+
+            # 检查学生是否已经知道
+            already_known = any(m.content == mem.content
+                                for m in student.long_memory)
+            if not already_known:
+                # 文化变异：有小概率内容发生变化
+                content = mem.content
+                if random.random() < mutation_rate and len(content) > 2:
+                    # 随机替换一个字（文化漂移）
+                    pos = random.randrange(len(content))
+                    mutation_chars = "的一是了我不人在他有这个上们来到时大地为子中"
+                    new_char = random.choice(mutation_chars)
+                    content = content[:pos] + new_char + content[pos + 1:]
+                    mutated += 1
+
+                # 学生学习这条记忆
+                student._write_stm(content, tag="culture",
+                                   modality=mem.modality,
+                                   features=mem.features)
+                if student.short_memory:
+                    new_mem = student.short_memory[-1]
+                    new_mem.weight = mem.weight * 0.8  # 文化传播有衰减
+                    student._consolidate_to_ltm(new_mem)
+                transmitted += 1
+
+        return {
+            "transmitted": transmitted,
+            "mutated": mutated,
+            "mutation_rate": mutation_rate,
+        }
+
+    def cultural_evolution(self, steps: int = 10,
+                           mutation_rate: float = 0.05) -> Dict:
+        """文化演化多步，返回演化轨迹。
+
+        追踪文化多样性、共识度、群体情绪随时间的变化。
+        """
+        history = []
+        for s in range(steps):
+            stats = self.cultural_evolution_step(mutation_rate=mutation_rate)
+            diversity = self.cultural_diversity()
+            emotion = self.group_emotion()
+            history.append({
+                "step": s + 1,
+                **stats,
+                "diversity": diversity["diversity"],
+                "consensus": diversity["consensus"],
+                "unique_memories": diversity["unique_memories"],
+            })
+        return {
+            "steps": steps,
+            "mutation_rate": mutation_rate,
+            "history": history,
+            "final_diversity": history[-1]["diversity"] if history else 0,
+            "final_consensus": history[-1]["consensus"] if history else 1.0,
+        }
 
 
 # ===================== 演示 =====================
