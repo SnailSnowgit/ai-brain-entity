@@ -33,6 +33,9 @@ v5.9 语言模型接入：Qwen2-0.5B 作为语言生成后端——大脑负责
 未下载模型或生成失败自动降级回模板。
 v6.0 记忆向量库：LanceDB 持久化长期记忆（容量无限、语义检索），
 recall_semantic 向量近邻回忆，未装 lancedb 自动降级内存模式。
+v6.1 基因库与记忆史学：DNA 基因库（人格搜索/进化谱系追踪）、
+记忆版本控制（修改历史/回忆过去版本/演化轨迹）、
+跨模态统一向量空间联想、STM 全量同步选项。
 
 ## 它是什么
 
@@ -90,7 +93,8 @@ recall_semantic 向量近邻回忆，未装 lancedb 自动降级内存模式。
 | **集体意识** | 群体意识涌现 | v5.8：`collective_workspace` 群体共享意识空间；`group_synchrony`/`group_emotion`/`group_polarization`/`group_ncc`/`group_self_awareness` 群体度量；`collective_consciousness_check` 涌现判定 |
 | **文化演化** | 模因演化+物种形成 | v5.3：`cultural_evolution_step`/`cultural_evolution` 模因传播+变异轨迹；`sexual_reproduce` 双亲 DNA 重组；`genetic_distance`/`detect_species` 遗传距离与物种检测 |
 | **语言模型接入** | 布洛卡区外接 | v5.9：`set_qwen_model()` 接入 Qwen2-0.5B-Instruct，大脑状态快照（刺激/动作/情绪/记忆/意识焦点）→ LLM 造句；`register_language_generator` 可换任意自定义模型；未下载自动降级模板 |
-| **记忆向量库** | 海马体外置 | v6.0：`attach_memory_store()` 接入 LanceDB，LTM 固化/强化/衰减自动同步到本地向量库（content+512维features+权重+tag）；`recall_semantic()` 向量近邻语义回忆；未装 lancedb 降级内存+关键词模式 |
+| **记忆向量库** | 海马体外置 | v6.0：`attach_memory_store()` 接入 LanceDB，LTM 固化/强化/衰减自动同步到本地向量库（content+512维features+权重+tag）；`recall_semantic()` 向量近邻语义回忆；未装 lancedb 降级内存+关键词模式。v6.1：`sync_stm=True` 全记忆入库；`modality`/`exclude_modality` 跨模态统一向量空间联想；`memory_history`/`recall_version` 记忆版本控制（演化轨迹/回忆过去版本） |
+| **DNA 基因库** | 种群基因组 | v6.1：`attach_dna_library()` + `save_to_library()` 多脑 DNA 入库；`DNALibrary.search()` 按人格参数（寻求刺激度/习惯化率/世代）检索；`lineage()` 进化谱系追踪；BrainSwarm 进化子代自动存档并链接亲代 |
 
 ## 依赖说明
 
@@ -109,7 +113,7 @@ python swarm.py              # 群体文化传递演示（定向传递+变异+�
 python experiments.py        # 复现实验 1-8（统一入口，生成 figures/ 与 data/ 结果）
 python encoder_status.py        # 观测台编码器面板数据（另两个导出器：brain_activity_trace / thought_chain_scenarios）
 python run_all.py               # 一键全流程：测试 → 演示 → 实验 → 观测数据（--quick 快速模式）
-python -m unittest discover tests  # 运行核心行为测试（157 项）
+python -m unittest discover tests  # 运行核心行为测试（167 项）
 ```
 
 ```python
@@ -397,6 +401,35 @@ brain.decay_memory(0.995)              # 大脑衰减节律同步到库（低于
 # 记忆携带真实 embedding（CLIP/Qwen features）时语义检索质量最佳；
 # 纯文本记忆走零依赖哈希向量兜底（字面近似）
 
+# ===== v6.1 基因库与记忆史学 =====
+# 1) 全记忆入库：短期记忆也同步（默认只同步固化进 LTM 的）
+brain.attach_memory_store(sync_stm=True)
+
+# 2) 跨模态统一向量空间联想：看到猫 → 排除视觉记忆 → 想起"喵的叫声"
+brain.perceive_image("cat.jpg", label="一只猫")
+rows = brain.recall_semantic("猫", exclude_modality="visual")
+
+# 3) 记忆版本控制：修改历史 / 回忆过去的版本 / 演化轨迹
+store = brain.memory_store
+store.memory_history("火焰是危险的", "Brain-01")
+# [{version: 1, weight: 0.65, reason: "add"},
+#  {version: 2, weight: 0.80, reason: "reinforce"},
+#  {version: 3, weight: 0.76, reason: "decay"}, ...]
+store.recall_version("火焰是危险的", version=-2)   # 回忆上一个版本
+
+# 4) DNA 基因库：多脑存储 / 人格搜索 / 进化谱系
+brain.attach_dna_library()
+brain.save_to_library()                       # 当前 DNA 入库
+lib = brain.dna_library
+lib.search(sensation_seeking=(0.8, 1.0))      # 找"探险家"人格的大脑
+lib.search(min_generation=3)                  # 找第 3 代以后的个体
+
+# 5) 进化谱系追踪：种群进化的子代自动存档并链接亲代
+swarm.attach_dna_library()
+swarm.save_population()
+swarm.evolve(generations=3)
+lib.lineage(child_dna_id)                     # 回溯：始祖 → … → 亲代
+
 # 群体智能：文化传递
 swarm = BrainSwarm(["Alpha", "Beta", "Gamma"], seed=1)
 for _ in range(25):
@@ -482,6 +515,14 @@ clone = AIBrainEntity.load_dna("brain_dna.json", new_name="Brain-02")
 | `attach_memory_store(store, path)` | 接入 LanceDB 记忆后端（默认 `data/lancedb/`）；未装 lancedb 时行为不变，返回可用状态 |
 | `recall_semantic(query, top_k)` | 语义回忆：向量近邻检索 LTM（字符串走哈希向量兜底）；无后端时降级关键词 recall |
 | `memory_store.py` | `LanceMemoryStore`：add/update_weight/search_vector/search_text/decay/count/info |
+| **v6.1 基因库与记忆史学** | |
+| `attach_memory_store(..., sync_stm=True)` | v6.1 参数：短期记忆也全量入库（默认只同步 LTM） |
+| `recall_semantic(..., modality=, exclude_modality=)` | v6.1 参数：跨模态统一向量空间联想（只查/排除某模态） |
+| `memory_store.memory_history(content, brain)` / `recall_version(content, version)` | 记忆版本控制：修改历史（add/reinforce/decay 轨迹）/ 回忆过去版本 |
+| `attach_dna_library(path)` / `save_to_library(parents)` | DNA 基因库接入 / 当前 DNA 入库（可挂亲代谱系） |
+| `DNALibrary.search(name_contains, min_generation, sensation_seeking, habituation_rate)` | 按人格参数/世代/名字检索库存 DNA |
+| `DNALibrary.lineage(dna_id)` / `get(dna_id)` | 进化谱系回溯 / 取回完整 DNA（可直接 from_dna 克隆） |
+| `swarm.attach_dna_library()` / `save_population()` | 种群接入基因库；进化子代自动存档并链接亲代 |
 | `dump_dna()` / `from_dna(dna)` | DNA 字典级导出与重建（`save_dna`/`load_dna` 的内存版） |
 
 **群体文化工具**（`swarm.py` 实验层）
@@ -518,7 +559,7 @@ ai_brain/
 ├── memory_store.py           # v6.0 LanceDB 记忆向量库后端（未装 lancedb 自动降级）
 ├── run_all.py                # 全流程统一入口（测试→演示→实验→观测数据，--quick 快速模式）
 ├── tests/                    # 核心行为测试（纯标准库 unittest）
-│   └── test_ai_brain.py      # 157 项：编码/可塑性/记忆/奖励/DNA/思考链/群体/多模态/v4.0~v6.0
+│   └── test_ai_brain.py      # 167 项：编码/可塑性/记忆/奖励/DNA/思考链/群体/多模态/v4.0~v6.1
 ├── docs/
 │   └── paper.md              # 学术论文（架构+实验+分析，含 v3.0 更新章节）
 ├── data/                     # 运行时数据产物
@@ -604,3 +645,6 @@ ai_brain/
 - ✅ ~~集体意识：群体工作空间与涌现判定~~（v5.8：`collective_workspace` / `collective_consciousness_check`）
 - ✅ ~~语言生成接入真实 LLM（大脑想什么 → 模型说出来）~~（v5.9：`set_qwen_model()` + `register_language_generator`，Qwen2-0.5B / 任意自定义模型，未下载自动降级模板）
 - ✅ ~~长期记忆外置向量库：容量无限 + 语义检索~~（v6.0：`attach_memory_store()` + `recall_semantic()`，LanceDB 持久化，未装自动降级内存模式）
+- ✅ ~~DNA 基因库：多脑 DNA 存储、人格搜索、进化谱系追踪~~（v6.1：`DNALibrary` + `save_to_library()` + `lineage()`，进化子代自动存档）
+- ✅ ~~跨模态记忆联想：统一向量空间自由联想~~（v6.1：`recall_semantic(modality=, exclude_modality=)`）
+- ✅ ~~记忆版本控制：修改历史、回忆过去版本、演化轨迹~~（v6.1：`memory_history()` + `recall_version()`）

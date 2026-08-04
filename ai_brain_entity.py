@@ -761,6 +761,10 @@ class AIBrainEntity:
         # v6.0 LanceDB 记忆后端：attach_memory_store() 接入后，
         # LTM 固化/强化/衰减会同步到本地向量库；None = 纯内存模式
         self.memory_store = None
+        # v6.1：STM 全量同步开关（attach_memory_store(sync_stm=True)）；
+        # DNA 基因库（attach_dna_library() 接入）
+        self.sync_stm = False
+        self.dna_library = None
         # v5.3 自我概念：关于"我是谁"的核心信念集合
         self.self_concept: List[str] = []       # 自我概念条目
         # v5.3 自传体记忆：个人经历的时间线（重要事件）
@@ -2310,6 +2314,16 @@ class AIBrainEntity:
         )
         self.short_memory.append(mem)
 
+        # v6.1：可选 STM 全量同步（"所有记忆入库"）；默认关闭，
+        # 只同步固化进 LTM 的记忆（attach_memory_store(sync_stm=True) 开启）
+        store = self.memory_store
+        if self.sync_stm and store is not None and \
+                getattr(store, "available", False):
+            try:
+                store.add(mem, brain_name=self.name)
+            except Exception:
+                pass
+
         if len(self.short_memory) > self.max_stm:
             weakest = min(self.short_memory, key=lambda m: m.weight)
             self.short_memory.remove(weakest)
@@ -2335,9 +2349,12 @@ class AIBrainEntity:
     # ------------------ LanceDB 记忆后端（v6.0） ------------------
 
     def attach_memory_store(self, store=None,
-                            path: str = "data/lancedb") -> Dict:
+                            path: str = "data/lancedb",
+                            sync_stm: bool = False) -> Dict:
         """接入 LanceDB 记忆后端：LTM 持久化到本地向量库。
 
+        sync_stm=True 时短期记忆也全量入库（"所有记忆存入 LanceDB"）；
+        默认只同步固化进 LTM 的记忆（STM 转瞬即逝，不同步更轻快）。
         lancedb 未安装时 store.available=False，大脑行为完全不变
         （纯内存 + 关键词 recall）。返回后端状态。
         """
@@ -2345,9 +2362,40 @@ class AIBrainEntity:
             from memory_store import LanceMemoryStore
             store = LanceMemoryStore(path)
         self.memory_store = store
+        self.sync_stm = sync_stm
         return {"attached": True,
                 "available": getattr(store, "available", False),
+                "sync_stm": self.sync_stm,
                 "error": getattr(store, "_error", None)}
+
+    # ------------------ DNA 基因库（v6.1） ------------------
+
+    def attach_dna_library(self, library=None,
+                           path: str = "data/lancedb") -> Dict:
+        """接入 DNA 基因库：多大脑 DNA 存储 / 人格参数搜索 / 进化谱系追踪"""
+        if library is None:
+            from memory_store import DNALibrary
+            library = DNALibrary(path)
+        self.dna_library = library
+        return {"attached": True,
+                "available": getattr(library, "available", False),
+                "error": getattr(library, "_error", None)}
+
+    def save_to_library(self, parents: Optional[List[str]] = None,
+                        library=None) -> Dict:
+        """把当前 DNA 存入基因库，返回 {"saved", "dna_id"}。
+
+        parents 为亲代 dna_id 列表（进化谱系追踪用）。
+        未接入基因库时返回 {"saved": False, "error"}。
+        """
+        lib = library or self.dna_library
+        if lib is None or not getattr(lib, "available", False):
+            return {"saved": False,
+                    "error": "未接入 DNA 基因库（attach_dna_library）"}
+        dna_id = lib.save(self.dump_dna(),
+                          generation=getattr(self, "generation", 1),
+                          parents=parents or [])
+        return {"saved": bool(dna_id), "dna_id": dna_id}
 
     def _store_sync_add(self, mem: BrainMemory) -> None:
         """固化同步：新 LTM 写入向量库（尽力而为，失败不影响大脑）"""
@@ -2368,12 +2416,16 @@ class AIBrainEntity:
             except Exception:
                 pass
 
-    def recall_semantic(self, query, top_k: int = 3) -> List[Dict]:
+    def recall_semantic(self, query, top_k: int = 3,
+                        modality: Optional[str] = None,
+                        exclude_modality: Optional[str] = None) -> List[Dict]:
         """语义回忆（v6.0）：向量近邻检索长期记忆。
 
         query 为数值序列时直接作为查询向量；为字符串时经零依赖
         哈希向量编码后检索（字面近似；真正语义相似需记忆携带
         CLIP/Qwen 真实 embedding）。
+        v6.1 跨模态联想：modality="visual" 只查该模态；
+        exclude_modality="text" 排除该模态（统一向量空间自由联想）。
         未接入 LanceDB 时自动降级为关键词 recall（同样返回字典列表）。
         """
         store = self.memory_store
@@ -2387,7 +2439,9 @@ class AIBrainEntity:
             from memory_store import text_to_vector
             query = text_to_vector(query)
         rows = store.search_vector(query, top_k=top_k,
-                                   brain_name=self.name)
+                                   brain_name=self.name,
+                                   modality=modality,
+                                   exclude_modality=exclude_modality)
         for r in rows:
             r["source"] = "lancedb"
             # 语义命中也进入思考空间（与关键词 recall 一致）
@@ -4444,6 +4498,57 @@ class BrainSwarm:
         self.generation = 1
         # v4.1 社交拓扑：个体索引 -> 邻居索引列表；None = 全连接（默认，向后兼容）
         self.topology: Optional[Dict[int, List[int]]] = None
+        # v6.1 DNA 基因库：attach_dna_library() 接入后，
+        # evolve_generation 出生的子代自动存档并链接亲代（进化谱系）
+        self.dna_library = None
+        self._library_ids: Dict[str, str] = {}  # 大脑名 -> 最近存档的 dna_id
+
+    # ------------------ DNA 基因库（v6.1） ------------------
+
+    def attach_dna_library(self, library=None,
+                           path: str = "data/lancedb") -> Dict:
+        """接入 DNA 基因库：种群进化谱系自动存档"""
+        if library is None:
+            from memory_store import DNALibrary
+            library = DNALibrary(path)
+        self.dna_library = library
+        return {"attached": True,
+                "available": getattr(library, "available", False),
+                "error": getattr(library, "_error", None)}
+
+    def save_population(self) -> Dict:
+        """把当前种群全部个体存入基因库，记录 dna_id（谱系的起点）"""
+        lib = self.dna_library
+        if lib is None or not getattr(lib, "available", False):
+            return {"saved": 0,
+                    "error": "未接入 DNA 基因库（attach_dna_library）"}
+        saved = 0
+        for brain in self.population:
+            r = brain.save_to_library(library=lib)
+            if r["saved"]:
+                self._library_ids[brain.name] = r["dna_id"]
+                saved += 1
+        return {"saved": saved, "total": len(self.population)}
+
+    def _archive_child(self, child: 'AIBrainEntity',
+                       parent: 'AIBrainEntity') -> None:
+        """进化子代自动存档：链接亲代 dna_id（尽力而为）"""
+        lib = self.dna_library
+        if lib is None or not getattr(lib, "available", False):
+            return
+        try:
+            parent_id = self._library_ids.get(parent.name)
+            if parent_id is None:  # 亲代未存档则先补档
+                r = parent.save_to_library(library=lib)
+                parent_id = r["dna_id"] if r["saved"] else None
+                if parent_id:
+                    self._library_ids[parent.name] = parent_id
+            r = child.save_to_library(parents=[parent_id] if parent_id
+                                      else [], library=lib)
+            if r["saved"]:
+                self._library_ids[child.name] = r["dna_id"]
+        except Exception:
+            pass
 
     # ------------------ 社交拓扑（v4.1） ------------------
 
@@ -5110,6 +5215,7 @@ class BrainSwarm:
                 child_name = f"{parent1.name[:4]}_{parent2.name[:4]}_g{self.generation + 1}_{i + 1}"
                 child = self.sexual_reproduce(parent1, parent2,
                                               child_name, mutation_rate)
+                child_parents = [parent1, parent2]
             else:
                 # 无性繁殖：克隆 + 变异
                 parent_idx = random.choice(survivors)
@@ -5127,9 +5233,11 @@ class BrainSwarm:
                         m["weight"] = min(1.0, max(0.0,
                             m["weight"] + random.uniform(-0.1, 0.1)))
                 child = AIBrainEntity.from_dna(dna, new_name=child_name)
+                child_parents = [parent]
 
             child.generation = self.generation + 1
             self.population.append(child)
+            self._archive_child(child, child_parents[0])  # v6.1 谱系存档
             n_born += 1
 
         self.generation += 1

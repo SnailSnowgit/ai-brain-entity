@@ -1769,7 +1769,11 @@ class _FakeStore:
     def update_weight(self, content, weight, brain_name=""):
         self.updated.append((content, weight))
 
-    def search_vector(self, vec, top_k=3, brain_name=None):
+    def search_vector(self, vec, top_k=3, brain_name=None,
+                      modality=None, exclude_modality=None):
+        self.last_search = {"top_k": top_k, "brain_name": brain_name,
+                            "modality": modality,
+                            "exclude_modality": exclude_modality}
         return self.rows[:top_k]
 
     def decay(self, factor, forget_threshold):
@@ -1856,6 +1860,155 @@ class TestLanceMemoryStore(unittest.TestCase):
         # 大幅衰减 → 权重跌破遗忘阈值 → 从库中删除
         self.brain.decay_memory(0.01)
         self.assertEqual(store.count(), 0)
+
+    def test_recall_semantic_modality_passthrough(self):
+        """跨模态联想参数透传到后端"""
+        store = _FakeStore()
+        self.brain.attach_memory_store(store)
+        self.brain.recall_semantic([0.1] * 16,
+                                   exclude_modality="visual")
+        self.assertEqual(store.last_search["exclude_modality"], "visual")
+        self.assertIsNone(store.last_search["modality"])
+
+    def test_sync_stm_writes_all_memories(self):
+        """sync_stm=True：短期记忆也全量入库"""
+        store = _FakeStore()
+        self.brain.attach_memory_store(store, sync_stm=True)
+        self.brain.sensory_input("一条新刺激")
+        self.assertTrue(any("一条新刺激" in c
+                            for c, _ in store.added))
+
+
+class TestMemoryVersioning(unittest.TestCase):
+    """v6.1 记忆版本控制：修改历史 / 回忆过去版本 / 演化轨迹"""
+
+    def setUp(self):
+        try:
+            import lancedb  # noqa: F401
+        except ImportError:
+            self.skipTest("lancedb 未安装")
+        import shutil
+        import tempfile
+        from memory_store import LanceMemoryStore
+        self.path = tempfile.mkdtemp(prefix="lance_ver_")
+        self.addCleanup(shutil.rmtree, self.path, True)
+        self.store = LanceMemoryStore(self.path)
+
+    def _mem(self, content, weight=0.6):
+        import time as _t
+        return BrainMemory(content=content, timestamp=_t.time(),
+                           weight=weight, tag="event")
+
+    def test_history_records_add_and_reinforce(self):
+        self.store.add(self._mem("火焰是危险的"), "B1")
+        self.store.update_weight("火焰是危险的", 0.75, "B1")
+        self.store.update_weight("火焰是危险的", 0.9, "B1")
+        hist = self.store.memory_history("火焰是危险的", "B1")
+        self.assertEqual(len(hist), 3)
+        self.assertEqual([h["version"] for h in hist], [1, 2, 3])
+        self.assertEqual(hist[0]["reason"], "add")
+        self.assertEqual(hist[-1]["reason"], "reinforce")
+        self.assertAlmostEqual(hist[-1]["weight"], 0.9)
+
+    def test_recall_past_version(self):
+        self.store.add(self._mem("水能灭火", 0.5), "B1")
+        self.store.update_weight("水能灭火", 0.8, "B1")
+        latest = self.store.recall_version("水能灭火", -1, "B1")
+        older = self.store.recall_version("水能灭火", -2, "B1")
+        self.assertAlmostEqual(latest["weight"], 0.8)
+        self.assertAlmostEqual(older["weight"], 0.5)
+
+    def test_decay_logs_trajectory(self):
+        self.store.add(self._mem("太阳会发光", 0.9), "B1")
+        self.store.decay(0.5, 0.01)
+        hist = self.store.memory_history("太阳会发光", "B1")
+        self.assertEqual([h["reason"] for h in hist], ["add", "decay"])
+        self.assertAlmostEqual(hist[-1]["weight"], 0.45)
+
+    def test_cross_modal_search(self):
+        """统一向量空间：排除当前模态 → 跨模态联想"""
+        m_visual = self._mem("一张猫的图片", 0.8)
+        m_visual.modality = "visual"
+        m_visual.features = [1.0] + [0.0] * 511
+        m_audio = self._mem("喵的叫声", 0.7)
+        m_audio.modality = "auditory"
+        m_audio.features = [0.9] + [0.1] * 511
+        self.store.add(m_visual, "B1")
+        self.store.add(m_audio, "B1")
+        # 看到猫 → 排除视觉记忆 → 联想起听觉记忆
+        rows = self.store.search_vector([1.0] + [0.0] * 511, top_k=2,
+                                        exclude_modality="visual")
+        self.assertEqual(len(rows), 1)
+        self.assertEqual(rows[0]["modality"], "auditory")
+
+
+class TestDNALibrary(unittest.TestCase):
+    """v6.1 DNA 基因库：存取 / 人格搜索 / 进化谱系"""
+
+    def setUp(self):
+        try:
+            import lancedb  # noqa: F401
+        except ImportError:
+            self.skipTest("lancedb 未安装")
+        import shutil
+        import tempfile
+        from memory_store import DNALibrary
+        self.path = tempfile.mkdtemp(prefix="lance_dna_")
+        self.addCleanup(shutil.rmtree, self.path, True)
+        self.lib = DNALibrary(self.path)
+        self.assertTrue(self.lib.available, self.lib._error)
+
+    def test_save_and_get_roundtrip(self):
+        brain = AIBrainEntity("Alpha", seed=1,
+                              sensation_seeking=0.9)
+        brain.sensory_input("基因库测试")
+        r = brain.save_to_library(library=self.lib)
+        self.assertTrue(r["saved"])
+        dna = self.lib.get(r["dna_id"])
+        self.assertEqual(dna["name"], "Alpha")
+        # 取回的 DNA 可直接克隆
+        clone = AIBrainEntity.from_dna(dna, new_name="Alpha-2")
+        self.assertEqual(clone.sensation_seeking, 0.9)
+
+    def test_search_by_personality(self):
+        hi = AIBrainEntity("Explorer", seed=1, sensation_seeking=0.9)
+        lo = AIBrainEntity("Homebody", seed=2, sensation_seeking=0.1)
+        hi.save_to_library(library=self.lib)
+        lo.save_to_library(library=self.lib)
+        found = self.lib.search(sensation_seeking=(0.8, 1.0))
+        self.assertEqual(len(found), 1)
+        self.assertEqual(found[0]["name"], "Explorer")
+        found2 = self.lib.search(name_contains="Home")
+        self.assertEqual(found2[0]["name"], "Homebody")
+
+    def test_lineage_tracking(self):
+        parent = AIBrainEntity("Parent", seed=1)
+        rp = parent.save_to_library(library=self.lib)
+        dna = parent.dump_dna()
+        child = AIBrainEntity.from_dna(dna, new_name="Child")
+        child.generation = 2
+        rc = child.save_to_library(parents=[rp["dna_id"]],
+                                   library=self.lib)
+        chain = self.lib.lineage(rc["dna_id"])
+        self.assertEqual(len(chain), 1)
+        self.assertEqual(chain[0]["name"], "Parent")
+        self.assertEqual(chain[0]["dna_id"], rp["dna_id"])
+
+    def test_swarm_evolution_auto_archive(self):
+        """种群进化：子代自动存档并链接亲代"""
+        swarm = BrainSwarm(["A", "B", "C", "D"], seed=1)
+        swarm.population[0].sensory_input("优势记忆内容xxxx")
+        swarm.attach_dna_library(self.lib)
+        swarm.save_population()
+        self.assertEqual(self.lib.count(), 4)
+        random.seed(3)
+        swarm.evolve_generation(task="diversity")
+        # 4 个初代 + 2 个子代
+        self.assertEqual(self.lib.count(), 6)
+        child = [b for b in swarm.population if "_g2_" in b.name][0]
+        child_id = swarm._library_ids[child.name]
+        chain = self.lib.lineage(child_id)
+        self.assertEqual(len(chain), 1)  # 能回溯到亲代
 
 
 if __name__ == "__main__":
