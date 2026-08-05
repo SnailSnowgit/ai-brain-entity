@@ -11,5 +11,5 @@ __pycache__/
 *.gguf
 
 # LanceDB 记忆库数据与 SDK 源码参考副本不进版本库
-data/lancedb/
+datasets/lancedb/
 lancedb_src/

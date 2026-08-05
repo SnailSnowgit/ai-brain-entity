@@ -65,6 +65,32 @@ def _remote_encode(mode: str, path: str) -> Optional[Dict]:
     return None
 
 
+def _remote_generate(prompt: str, max_length: int = 100,
+                     temperature: float = 0.7) -> Optional[Dict]:
+    """通过subprocess调用系统Python进行文本生成"""
+    system_py = _find_system_python()
+    if not system_py:
+        return None
+
+    service_script = os.path.join(os.path.dirname(os.path.abspath(__file__)),
+                                  "multimodal_service.py")
+    if not os.path.exists(service_script):
+        return None
+
+    try:
+        # 用特殊分隔符传递参数
+        arg = f"{max_length}|{temperature}|{prompt}"
+        result = subprocess.run(
+            [system_py, service_script, "generate", arg],
+            capture_output=True, text=True, timeout=120
+        )
+        if result.returncode == 0:
+            return json.loads(result.stdout.strip())
+    except Exception:
+        pass
+    return None
+
+
 # ==================== 听觉编码器（Whisper） ====================
 
 class AudioEncoder:
@@ -404,3 +430,281 @@ def encode_audio(path: str) -> Dict:
 def encode_image(path: str) -> Dict:
     """便捷函数：编码图像"""
     return get_vision_encoder().encode(path)
+
+
+# ==================== 语言编码器（Qwen2） ====================
+
+class LanguageEncoder:
+    """文本 → 语义向量 编码器（基于 Qwen2）
+
+    优先级：项目本地模型 > 本地transformers > 远程系统Python > 降级占位
+    """
+
+    def __init__(self, model_name: str = "Qwen/Qwen2-0.5B", device: str = "cpu"):
+        self.model_name = model_name
+        self.device = device
+        self.model = None
+        self.tokenizer = None
+        self.available = False
+        self.use_remote = False
+        self._error = "not loaded"
+        self.feature_dim = 896  # Qwen2-0.5B hidden size
+        self._local_model_path = None
+        self._load()
+
+    def _find_local_model(self) -> Optional[str]:
+        """查找项目本地模型目录"""
+        # 项目 models/qwen2-0.5b/ 目录
+        enc_dir = os.path.dirname(os.path.abspath(__file__))
+        models_dir = os.path.dirname(enc_dir)  # models/
+        local_paths = [
+            os.path.join(models_dir, "qwen2-0.5b"),
+            os.path.join(models_dir, "Qwen2-0.5B"),
+            os.path.join(models_dir, "qwen"),
+        ]
+        for path in local_paths:
+            if os.path.exists(os.path.join(path, "config.json")) and \
+               os.path.exists(os.path.join(path, "model.safetensors")):
+                return path
+        return None
+
+    def _load(self):
+        """尝试加载 Qwen2 模型，失败则尝试远程，再失败则标记不可用"""
+        # 0. 优先从项目本地目录加载
+        local_path = self._find_local_model()
+        if local_path:
+            try:
+                import os
+                os.environ.setdefault('HF_HUB_DISABLE_SYMLINKS_WARNING', '1')
+                from transformers import AutoModelForCausalLM, AutoTokenizer
+                import torch
+                self.tokenizer = AutoTokenizer.from_pretrained(local_path)
+                self.model = AutoModelForCausalLM.from_pretrained(local_path)
+                self.model.eval()
+                self.feature_dim = self.model.config.hidden_size
+                self.available = True
+                self.use_remote = False
+                self._local_model_path = local_path
+                return
+            except Exception as e:
+                self._error = f"local-file: {str(e)}"
+
+        # 1. 尝试从 HuggingFace 缓存加载
+        try:
+            import os
+            os.environ.setdefault('HF_ENDPOINT', 'https://hf-mirror.com')
+            os.environ.setdefault('HF_HUB_DISABLE_SYMLINKS_WARNING', '1')
+            from transformers import AutoModelForCausalLM, AutoTokenizer
+            import torch
+            self.tokenizer = AutoTokenizer.from_pretrained(self.model_name)
+            self.model = AutoModelForCausalLM.from_pretrained(self.model_name)
+            self.model.eval()
+            self.feature_dim = self.model.config.hidden_size
+            self.available = True
+            self.use_remote = False
+            return
+        except Exception as e:
+            self._error = f"local-hf: {str(e)}"
+
+        # 2. 尝试远程（系统Python 3.8）
+        remote_result = _remote_encode("text", "hello")  # 用测试文本测试
+        if remote_result is not None:
+            self.available = True
+            self.use_remote = True
+            self.feature_dim = len(remote_result.get("features", [0.0] * 16))
+            return
+
+        # 3. 降级模式
+        self.available = False
+        self.use_remote = False
+
+    def encode(self, text: str) -> Dict:
+        """编码文本 → {text, features, meta}"""
+        if not text or not isinstance(text, str):
+            return {
+                "text": "",
+                "features": [0.0] * self.feature_dim,
+                "meta": {"encoder": "fallback", "error": "empty input"},
+            }
+
+        # 远程模式
+        if self.use_remote:
+            result = _remote_encode("text", text)
+            if result is not None:
+                return result
+            # 远程失败，降级
+
+        # 本地模式
+        if self.available and self.model is not None:
+            try:
+                import torch
+                inputs = self.tokenizer(
+                    text, return_tensors="pt",
+                    padding=True, truncation=True, max_length=128
+                )
+                with torch.no_grad():
+                    outputs = self.model(**inputs, output_hidden_states=True)
+                # 从 hidden_states 获取最后一层的 hidden state
+                # ForCausalLM 模型用 output_hidden_states=True 获取
+                if hasattr(outputs, 'hidden_states') and outputs.hidden_states:
+                    last_hidden = outputs.hidden_states[-1]
+                elif hasattr(outputs, 'last_hidden_state'):
+                    last_hidden = outputs.last_hidden_state
+                else:
+                    # 降级：用 logits 的维度（可能不准确，但能运行）
+                    last_hidden = outputs.logits
+                attention_mask = inputs["attention_mask"].unsqueeze(-1)
+                pooled = (last_hidden * attention_mask).sum(1) / attention_mask.sum(1)
+                features = pooled.squeeze().numpy().tolist()
+                # 确保特征维度正确
+                if len(features) != self.feature_dim:
+                    # 如果维度不对，截断或填充到正确维度
+                    if len(features) > self.feature_dim:
+                        features = features[:self.feature_dim]
+                    else:
+                        features = features + [0.0] * (self.feature_dim - len(features))
+                return {
+                    "text": text,
+                    "features": features,
+                    "meta": {
+                        "encoder": "qwen2-local",
+                        "model": self.model_name,
+                        "tokens": inputs["input_ids"].shape[1],
+                        "dim": len(features),
+                    },
+                }
+            except Exception as e:
+                self._error = f"encode: {str(e)}"
+
+        # 降级模式：字符哈希伪 embedding
+        features = self._text_to_hash_features(text)
+        return {
+            "text": text,
+            "features": features,
+            "meta": {"encoder": "hash-fallback", "dim": len(features), "error": self._error},
+        }
+
+    def generate(self, prompt: str, max_length: int = 100,
+                 temperature: float = 0.7) -> Dict:
+        """生成文本回复
+
+        Args:
+            prompt: 提示词
+            max_length: 最大生成长度
+            temperature: 温度（越高越随机）
+
+        Returns:
+            {text, meta}
+        """
+        if not prompt or not isinstance(prompt, str):
+            return {
+                "text": "",
+                "meta": {"generator": "fallback", "error": "empty input"},
+            }
+
+        # 远程模式
+        if self.use_remote:
+            result = _remote_generate(prompt, max_length, temperature)
+            if result is not None:
+                return result
+
+        # 本地模式
+        if self.available and self.model is not None:
+            try:
+                import torch
+                inputs = self.tokenizer(prompt, return_tensors="pt")
+                with torch.no_grad():
+                    outputs = self.model.generate(
+                        **inputs,
+                        max_new_tokens=max_length,
+                        temperature=temperature,
+                        do_sample=True,
+                        top_p=0.9,
+                        pad_token_id=self.tokenizer.eos_token_id,
+                    )
+                generated = self.tokenizer.decode(
+                    outputs[0][inputs["input_ids"].shape[1]:],
+                    skip_special_tokens=True
+                )
+                return {
+                    "text": generated.strip(),
+                    "meta": {
+                        "generator": "qwen2-local",
+                        "model": self.model_name,
+                        "prompt_tokens": inputs["input_ids"].shape[1],
+                        "generated_tokens": len(outputs[0]) - inputs["input_ids"].shape[1],
+                    },
+                }
+            except Exception as e:
+                self._error = f"generate: {str(e)}"
+
+        # 降级模式：简单模板回复
+        fallback = f"（思考中...关于「{prompt[:20]}」的想法正在形成）"
+        return {
+            "text": fallback,
+            "meta": {"generator": "fallback", "error": self._error},
+        }
+
+    def _text_to_hash_features(self, text: str, dims: int = 16) -> List[float]:
+        """文本 → 16 维伪 embedding（字符哈希，降级用）"""
+        features = [0.0] * dims
+        if not text:
+            return features
+        for i, ch in enumerate(text):
+            features[i % dims] += ord(ch) / 65535.0
+        # 归一化
+        max_val = max(features) if max(features) > 0 else 1.0
+        return [f / max_val for f in features]
+
+
+# ==================== 便捷函数（更新） ====================
+
+_audio_encoder = None
+_vision_encoder = None
+_language_encoder = None
+
+
+def get_audio_encoder(model_size: str = "base") -> AudioEncoder:
+    """获取（懒加载）全局音频编码器"""
+    global _audio_encoder
+    if _audio_encoder is None:
+        _audio_encoder = AudioEncoder(model_size=model_size)
+    return _audio_encoder
+
+
+def get_vision_encoder(model_name: str = "auto") -> VisionEncoder:
+    """获取（懒加载）全局视觉编码器"""
+    global _vision_encoder
+    if _vision_encoder is None:
+        _vision_encoder = VisionEncoder(model_name=model_name)
+    return _vision_encoder
+
+
+def get_language_encoder(model_name: str = "Qwen/Qwen2-0.5B") -> LanguageEncoder:
+    """获取（懒加载）全局语言编码器"""
+    global _language_encoder
+    if _language_encoder is None:
+        _language_encoder = LanguageEncoder(model_name=model_name)
+    return _language_encoder
+
+
+def encode_audio(path: str) -> Dict:
+    """便捷函数：编码音频"""
+    return get_audio_encoder().encode(path)
+
+
+def encode_image(path: str) -> Dict:
+    """便捷函数：编码图像"""
+    return get_vision_encoder().encode(path)
+
+
+def encode_text(text: str) -> Dict:
+    """便捷函数：编码文本"""
+    return get_language_encoder().encode(text)
+
+
+def generate_text(prompt: str, max_length: int = 100,
+                  temperature: float = 0.7) -> Dict:
+    """便捷函数：生成文本"""
+    return get_language_encoder().generate(prompt, max_length=max_length,
+                                           temperature=temperature)

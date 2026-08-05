@@ -950,131 +950,215 @@
   "short_memory": [
     {
       "content": "你好，我是你的创造者",
-      "timestamp": 1785651961.5702584,
+      "timestamp": 1785836500.3649228,
       "weight": 0.7008315420124586,
-      "tag": "sensory"
+      "tag": "sensory",
+      "modality": "text",
+      "features": [],
+      "emotion": "neutral",
+      "emotional_intensity": 0.0
     },
     {
       "content": "今天外面的天气很好",
-      "timestamp": 1785651961.5712476,
+      "timestamp": 1785836500.3649228,
       "weight": 0.564751179956438,
-      "tag": "sensory"
+      "tag": "sensory",
+      "modality": "text",
+      "features": [],
+      "emotion": "neutral",
+      "emotional_intensity": 0.0
     },
     {
       "content": "神经元脉冲正在传递信号",
-      "timestamp": 1785651961.5712476,
+      "timestamp": 1785836500.3649228,
       "weight": 0.5886475586251676,
-      "tag": "sensory"
+      "tag": "sensory",
+      "modality": "text",
+      "features": [],
+      "emotion": "neutral",
+      "emotional_intensity": 0.0
     },
     {
       "content": "你喜欢学习新的知识吗",
-      "timestamp": 1785651961.5722566,
+      "timestamp": 1785836500.3649228,
       "weight": 0.6120864404251461,
-      "tag": "sensory"
+      "tag": "sensory",
+      "modality": "text",
+      "features": [],
+      "emotion": "neutral",
+      "emotional_intensity": 0.0
     },
     {
       "content": "记忆是智慧的基石",
-      "timestamp": 1785651961.5722566,
+      "timestamp": 1785836500.3696294,
       "weight": 0.778312557068642,
-      "tag": "sensory"
+      "tag": "sensory",
+      "modality": "text",
+      "features": [],
+      "emotion": "neutral",
+      "emotional_intensity": 0.0
     },
     {
       "content": "你好，我是你的创造者",
-      "timestamp": 1785651961.5732665,
+      "timestamp": 1785836500.3708313,
       "weight": 0.5740947426336985,
-      "tag": "sensory"
+      "tag": "sensory",
+      "modality": "text",
+      "features": [],
+      "emotion": "neutral",
+      "emotional_intensity": 0.0
     },
     {
       "content": "记忆是智慧的基石",
-      "timestamp": 1785651961.574267,
+      "timestamp": 1785836500.3718257,
       "weight": 0.5143788728380883,
-      "tag": "sensory"
+      "tag": "sensory",
+      "modality": "text",
+      "features": [],
+      "emotion": "neutral",
+      "emotional_intensity": 0.0
     },
     {
       "content": "一张测试图片",
-      "timestamp": 1785651961.5798838,
+      "timestamp": 1785836789.7856286,
       "weight": 0.4920491985787957,
-      "tag": "sensory"
+      "tag": "sensory",
+      "modality": "text",
+      "features": [],
+      "emotion": "neutral",
+      "emotional_intensity": 0.0
     },
     {
       "content": "一段测试音频",
-      "timestamp": 1785651961.5808885,
+      "timestamp": 1785836790.682116,
       "weight": 0.5166096296296535,
-      "tag": "sensory"
+      "tag": "sensory",
+      "modality": "text",
+      "features": [],
+      "emotion": "neutral",
+      "emotional_intensity": 0.0
     },
     {
       "content": "自定义模型编码的图片",
-      "timestamp": 1785651961.5818808,
+      "timestamp": 1785836790.6847126,
       "weight": 0.54140754719105,
-      "tag": "sensory"
+      "tag": "sensory",
+      "modality": "text",
+      "features": [],
+      "emotion": "neutral",
+      "emotional_intensity": 0.0
     },
     {
       "content": "<image:demo_media.bin>",
-      "timestamp": 1785651961.5828826,
+      "timestamp": 1785836790.6847126,
       "weight": 0.5656414040524747,
-      "tag": "sensory"
+      "tag": "sensory",
+      "modality": "text",
+      "features": [],
+      "emotion": "neutral",
+      "emotional_intensity": 0.0
     },
     {
       "content": "火焰是危险的",
-      "timestamp": 1785651961.6189997,
+      "timestamp": 1785836790.7310867,
       "weight": 0.6893482731494442,
-      "tag": "sensory"
+      "tag": "sensory",
+      "modality": "text",
+      "features": [],
+      "emotion": "neutral",
+      "emotional_intensity": 0.0
     },
     {
       "content": "今天天气晴朗",
-      "timestamp": 1785651961.620004,
+      "timestamp": 1785836790.7334769,
       "weight": 0.6126505564311985,
-      "tag": "sensory"
+      "tag": "sensory",
+      "modality": "text",
+      "features": [],
+      "emotion": "neutral",
+      "emotional_intensity": 0.0
     },
     {
       "content": "记忆是智慧的基石",
-      "timestamp": 1785651961.7821715,
+      "timestamp": 1785836790.9371214,
       "weight": 0.5518742715821754,
-      "tag": "sensory"
+      "tag": "sensory",
+      "modality": "text",
+      "features": [],
+      "emotion": "neutral",
+      "emotional_intensity": 0.0
     },
     {
       "content": "记忆是智慧的基石",
-      "timestamp": 1785651961.7831657,
+      "timestamp": 1785836790.9426646,
       "weight": 0.4919830798340295,
-      "tag": "sensory"
+      "tag": "sensory",
+      "modality": "text",
+      "features": [],
+      "emotion": "neutral",
+      "emotional_intensity": 0.0
     },
     {
       "content": "记忆是智慧的基石",
-      "timestamp": 1785651961.7881927,
+      "timestamp": 1785836790.9450157,
       "weight": 0.4685538882622857,
-      "tag": "sensory"
+      "tag": "sensory",
+      "modality": "text",
+      "features": [],
+      "emotion": "neutral",
+      "emotional_intensity": 0.0
     },
     {
       "content": "记忆是智慧的基石",
-      "timestamp": 1785651961.7911909,
+      "timestamp": 1785836790.950751,
       "weight": 0.4685538882622857,
-      "tag": "sensory"
+      "tag": "sensory",
+      "modality": "text",
+      "features": [],
+      "emotion": "neutral",
+      "emotional_intensity": 0.0
     },
     {
       "content": "记忆是智慧的基石",
-      "timestamp": 1785651961.7941928,
+      "timestamp": 1785836790.9554827,
       "weight": 0.4682133765185682,
-      "tag": "sensory"
+      "tag": "sensory",
+      "modality": "text",
+      "features": [],
+      "emotion": "neutral",
+      "emotional_intensity": 0.0
     },
     {
       "content": "记忆是智慧的基石",
-      "timestamp": 1785651961.7971916,
+      "timestamp": 1785836790.961347,
       "weight": 0.4683836323904272,
-      "tag": "sensory"
+      "tag": "sensory",
+      "modality": "text",
+      "features": [],
+      "emotion": "neutral",
+      "emotional_intensity": 0.0
     },
     {
       "content": "火焰是危险的",
-      "timestamp": 1785651961.7991931,
+      "timestamp": 1785836790.961347,
       "weight": 0.6011375,
-      "tag": "sensory"
+      "tag": "sensory",
+      "modality": "text",
+      "features": [],
+      "emotion": "neutral",
+      "emotional_intensity": 0.0
     }
   ],
   "long_memory": [
     {
       "content": "记忆是智慧的基石",
-      "timestamp": 1785651961.7981858,
+      "timestamp": 1785836790.961347,
       "weight": 0.828312557068642,
-      "tag": "event"
+      "tag": "event",
+      "modality": "text",
+      "features": [],
+      "emotion": "neutral",
+      "emotional_intensity": 0.0
     }
   ],
   "emotion": {
@@ -1100,5 +1184,20 @@
     "<image:demo_media.bin>": 1,
     "火焰是危险的": 2,
     "今天天气晴朗": 1
-  }
+  },
+  "thought_space": [
+    {
+      "content": "记忆是智慧的基石",
+      "source": "memory",
+      "activation": 0.9,
+      "birth_tick": 5
+    },
+    {
+      "content": "火焰是危险的",
+      "source": "memory",
+      "activation": 1.0,
+      "birth_tick": 53
+    }
+  ],
+  "metacog_log": []
 }

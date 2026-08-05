@@ -1,0 +1,5 @@
+$449400ae-e979-4871-8595-17c495a35152²Ÿ gene_id ÿÿÿÿÿÿÿÿÿ*string08name ÿÿÿÿÿÿÿÿÿ*string08dna ÿÿÿÿÿÿÿÿÿ*string083vector ÿÿÿÿÿÿÿÿÿ*fixed_size_list:float:1608!fitness ÿÿÿÿÿÿÿÿÿ*float08$
+generation ÿÿÿÿÿÿÿÿÿ*int3208%
+parent_ids ÿÿÿÿÿÿÿÿÿ*string08%
+created_at ÿÿÿÿÿÿÿÿÿ*double08&personality ÿÿÿÿÿÿÿÿÿ*string08&memory_count	 ÿÿÿÿÿÿÿÿÿ*int3208tick
+ ÿÿÿÿÿÿÿÿÿ*int6408

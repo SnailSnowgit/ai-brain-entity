@@ -4,7 +4,7 @@
 
 用法：
     py -3.8 multimodal_service.py <mode> <input_path>
-    mode: audio / image
+    mode: audio / image / text
 
 输出：JSON格式的编码结果
 """
@@ -30,6 +30,36 @@ def encode_image(image_path: str) -> dict:
     return encoder.encode(image_path)
 
 
+def encode_text(text: str) -> dict:
+    """编码文本，返回结果字典"""
+    sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+    from multimodal import LanguageEncoder
+    encoder = LanguageEncoder(model_name="Qwen/Qwen2-0.5B")
+    return encoder.encode(text)
+
+
+def generate_text(arg: str) -> dict:
+    """生成文本，返回结果字典
+    arg 格式: max_length|temperature|prompt
+    """
+    sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+    from multimodal import LanguageEncoder
+    encoder = LanguageEncoder(model_name="Qwen/Qwen2-0.5B")
+
+    # 解析参数
+    parts = arg.split("|", 2)
+    if len(parts) == 3:
+        max_length = int(parts[0])
+        temperature = float(parts[1])
+        prompt = parts[2]
+    else:
+        max_length = 100
+        temperature = 0.7
+        prompt = arg
+
+    return encoder.generate(prompt, max_length=max_length, temperature=temperature)
+
+
 def main():
     if len(sys.argv) < 3:
         print(json.dumps({"error": "Usage: multimodal_service.py <mode> <path>"}))
@@ -48,6 +78,10 @@ def main():
             result = encode_audio(path)
         elif mode == "image":
             result = encode_image(path)
+        elif mode == "text":
+            result = encode_text(path)
+        elif mode == "generate":
+            result = generate_text(path)
         else:
             result = {"error": f"Unknown mode: {mode}"}
     except Exception as e:

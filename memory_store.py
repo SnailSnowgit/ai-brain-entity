@@ -13,7 +13,7 @@ timestamp 全部持久化，支持向量近邻检索（语义回忆）。
 安装：
     pip install lancedb        # 纯 wheel（Rust 内核），无需编译
 
-数据位置：data/lancedb/（已被 .gitignore 忽略则不会入库）。
+数据位置：datasets/lancedb/（已被 .gitignore 忽略则不会入库）。
 """
 import os
 import time
@@ -49,13 +49,13 @@ class LanceMemoryStore:
     """LTM 向量持久化后端。
 
     用法：
-        store = LanceMemoryStore("data/lancedb")
+        store = LanceMemoryStore("datasets/lancedb")
         if store.available:
             store.add(mem, brain_name="Brain-01")
             rows = store.search_vector(features, top_k=3)
     """
 
-    def __init__(self, path: str = "data/lancedb",
+    def __init__(self, path: str = "datasets/lancedb",
                  table: str = "long_memory", dim: int = _STORE_DIM):
         self.path = path
         self.table_name = table
@@ -65,6 +65,7 @@ class LanceMemoryStore:
         self._db = None
         self._tbl = None
         self._vtbl = None  # 版本表（v6.1 懒建）
+        self._ver_counts = None  # 版本号内存缓存 {(content, brain): max_version}
         try:
             import lancedb
         except Exception as e:
@@ -197,21 +198,33 @@ class LanceMemoryStore:
     def decay(self, factor: float = 0.995,
               forget_threshold: float = 0.05) -> int:
         """全部记忆权重 ×factor，低于阈值删除（与大脑衰减节律同步）。
-        返回被删除的条数。"""
+        返回被删除的条数。
+
+        批量实现（v6.2 优化）：一次全表扫描 → 内存中算新权重 →
+        一次删除 + 一次批量回写，替代逐行 SQL update（N 行从 2N+1 次
+        表操作降为 3 次）；版本日志同样批量入库。
+        """
         if not self.available or self._tbl is None:
             return 0
         try:
             rows = self._scan_rows()
+            kept = []
+            removed = 0
             for r in rows:
-                new_w = r["weight"] * factor
-                self._tbl.update(
-                    where=(f"content = '{_escape(r['content'])}' AND "
-                           f"brain = '{_escape(r['brain'])}'"),
-                    values={"weight": new_w})
-                self._log_version(r["content"], r["brain"], new_w, "decay")
-            before = self._tbl.count_rows()
-            self._tbl.delete(f"weight < {forget_threshold}")
-            return before - self._tbl.count_rows()
+                r["weight"] = float(r["weight"]) * factor
+                if r["weight"] >= forget_threshold:
+                    kept.append(r)
+                else:
+                    removed += 1
+            # 整体回写保留行（lancedb 无算术 update，删全表再批量插入最快）
+            self._tbl.delete("weight >= 0")
+            if kept:
+                self._tbl.add(kept)
+                self._log_versions([
+                    {"content": r["content"], "brain": r["brain"],
+                     "weight": r["weight"], "reason": "decay"}
+                    for r in kept])
+            return removed
         except Exception as e:
             self._error = f"衰减同步失败: {e}"
             return 0
@@ -231,22 +244,49 @@ class LanceMemoryStore:
     def _log_version(self, content: str, brain_name: str,
                      weight: float, reason: str) -> None:
         """记录一次记忆变更（尽力而为）。reason: add/reinforce/decay"""
+        self._log_versions([{"content": content, "brain": brain_name,
+                             "weight": weight, "reason": reason}])
+
+    def _log_versions(self, entries: List[Dict]) -> None:
+        """批量记录记忆变更（v6.2）：单次表扫描 + 单次批量插入。
+
+        版本号由内存缓存 _ver_counts 维护（首次使用时一次扫描建立），
+        替代原来每条记录一次全表扫描的 O(N·V) 做法。
+        entries: [{"content", "brain", "weight", "reason"}]
+        """
+        if not entries:
+            return
         try:
             existed = self._versions_table() is not None
-            row = {"content": content, "brain": brain_name,
-                   "version": 1, "weight": float(weight),
-                   "reason": reason, "timestamp": time.time()}
+            now = time.time()
+            rows = [{"content": e["content"], "brain": e["brain"],
+                     "version": 1, "weight": float(e["weight"]),
+                     "reason": e["reason"], "timestamp": now}
+                    for e in entries]
             tbl = self._versions_table(
-                first_row=None if existed else row)
+                first_row=None if existed else rows[0])
             if tbl is None:
                 return
-            if existed:  # 首行已在建表时写入，只追加后续版本
-                hist = [r for r in self._scan_rows(tbl)
-                        if r["content"] == content
-                        and r["brain"] == brain_name]
-                row["version"] = max((r["version"] for r in hist),
-                                     default=0) + 1
-                tbl.add([row])
+            if not existed:
+                # 首行已随建表写入；缓存登记后追加剩余
+                first = rows[0]
+                if self._ver_counts is not None:
+                    self._ver_counts[(first["content"],
+                                      first["brain"])] = 1
+                rows = rows[1:]
+            if not rows:
+                return
+            counts = self._ver_counts
+            if counts is None:  # 首次使用：一次扫描建立全量缓存
+                counts = self._ver_counts = {}
+                for r in self._scan_rows(tbl):
+                    key = (r["content"], r["brain"])
+                    counts[key] = max(counts.get(key, 0), r["version"])
+            for row in rows:
+                key = (row["content"], row["brain"])
+                row["version"] = counts.get(key, 0) + 1
+                counts[key] = row["version"]
+            tbl.add(rows)
         except Exception:
             pass
 
@@ -305,7 +345,7 @@ class DNALibrary:
     lancedb 未安装时 available=False，调用方降级。
     """
 
-    def __init__(self, path: str = "data/lancedb",
+    def __init__(self, path: str = "datasets/lancedb",
                  table: str = "dna_library"):
         self.path = path
         self.table_name = table

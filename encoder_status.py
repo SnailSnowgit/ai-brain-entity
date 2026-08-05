@@ -53,11 +53,11 @@ def _stats(vec):
 
 
 def main() -> None:
-    out_path = Path("data/encoder_status.json")
+    out_path = Path("datasets/encoder_status.json")
     out_path.parent.mkdir(exist_ok=True)
 
     # 1. 构造一个确定的样本文件（内容非均匀，使直方图编码器输出有结构）
-    sample = Path("data/_encoder_sample.bin")
+    sample = Path("datasets/_encoder_sample.bin")
     sample.write_bytes("大脑多模态编码器探针样本·神经元脉冲".encode("utf-8") * 16)
 
     # 2. 通路 A：注册自定义编码器（ hist32 ）

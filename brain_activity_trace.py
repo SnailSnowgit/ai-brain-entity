@@ -115,7 +115,7 @@ def main() -> None:
         "frames": frames,
     }
 
-    DATA = BASE / "data"
+    DATA = BASE / "datasets"
     DATA.mkdir(exist_ok=True)
     out_path = DATA / "brain_activity_trace.json"
     with open(out_path, "w", encoding="utf-8") as f:

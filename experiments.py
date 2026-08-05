@@ -663,7 +663,7 @@ RESULTS["exp8"] = {
 }
 
 # ===================== 汇总 =====================
-DATA = BASE / "data"
+DATA = BASE / "datasets"
 DATA.mkdir(exist_ok=True)
 with open(DATA / "experiment_results.json", "w", encoding="utf-8") as f:
     json.dump(RESULTS, f, ensure_ascii=False, indent=2)

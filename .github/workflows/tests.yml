@@ -1,0 +1,30 @@
+name: tests
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        python-version: ["3.8", "3.10", "3.12"]
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python ${{ matrix.python-version }}
+        uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python-version }}
+
+      # 核心模块零依赖，直接跑测试（lancedb 相关测试未装依赖时自动跳过）
+      - name: Run core behavior tests
+        run: python -m unittest discover tests
+
+      - name: Run core demo smoke check
+        run: python -c "from ai_brain_entity import AIBrainEntity; b=AIBrainEntity('CI', seed=1); b.sensory_input('火焰'); print(b.status())"

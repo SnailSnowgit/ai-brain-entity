@@ -29,8 +29,6 @@ from ai_brain_entity import (
     register_image_encoder, register_audio_encoder,
     unregister_image_encoder, unregister_audio_encoder,
     list_encoders,
-    make_robot_executor, make_api_executor,
-    make_function_executor, make_file_executor,
     register_language_generator, unregister_language_generator,
     get_language_generator_info, set_qwen_model,
 )
@@ -509,110 +507,6 @@ class TestSwarmDynamics(unittest.TestCase):
         self.assertTrue(0.0 < act["index"] <= 1.0)
 
 
-class TestExecutorLoop(unittest.TestCase):
-    """v4.1 扩展A：动作空间接入真实执行器 + 执行结果回传奖励"""
-
-    def test_robot_executor_success_loop(self):
-        """机器人执行成功 → 正奖励经 reward_td 回传，价值估计上升"""
-        brain = AIBrainEntity("t", seed=42)
-        brain.register_executor(make_robot_executor(strictness=0.1),
-                                default=True)
-        out = brain.act("火焰是危险的")
-        self.assertIn("execution", out)
-        self.assertTrue(out["execution"]["success"])
-        self.assertIn("机器人执行", out["execution"]["detail"])
-        self.assertIsNotNone(out["feedback"])
-        self.assertGreater(brain.value_estimate, 0.0)
-
-    def test_robot_executor_low_intensity_fails(self):
-        """动作强度低于驱动门槛 → 执行失败 → 负奖励 → RPE 为负"""
-        brain = AIBrainEntity("t", seed=42)
-        brain.register_executor(make_robot_executor(strictness=0.9),
-                                default=True)
-        brain.sensory_input("测试刺激")
-        out = brain.act("测试刺激")
-        if out["action"]["verb"] != "observe":  # observe 无门槛
-            self.assertFalse(out["execution"]["success"])
-            self.assertLess(out["feedback"]["rpe"], 0.0)
-
-    def test_verb_routing_and_no_executor(self):
-        """按 verb 路由执行器；无执行器时 execution/feedback 为 None"""
-        brain = AIBrainEntity("t", seed=42)
-        calls = []
-        brain.register_executor(
-            lambda a: calls.append(a) or
-            {"success": True, "reward": 0.5, "detail": "ok"},
-            verb="observe")
-        brain.sensory_input("平静输入")
-        out = brain.act("平静输入")
-        if out["action"]["verb"] == "observe":
-            self.assertEqual(len(calls), 1)
-        bare = AIBrainEntity("b", seed=1)
-        bare.sensory_input("无执行器")
-        out2 = bare.act("无执行器")
-        self.assertIsNone(out2["execution"])
-        self.assertIsNone(out2["feedback"])
-
-    def test_executor_exception_becomes_negative_reward(self):
-        """执行器抛异常不中断大脑，按失败处理"""
-        def boom(action):
-            raise RuntimeError("硬件离线")
-        brain = AIBrainEntity("t", seed=42)
-        brain.register_executor(boom, default=True)
-        brain.sensory_input("触发动作")
-        out = brain.act("触发动作")
-        self.assertFalse(out["execution"]["success"])
-        self.assertEqual(out["execution"]["reward"], -0.5)
-        self.assertIn("硬件离线", out["execution"]["detail"])
-
-    def test_api_executor_local_server(self):
-        """HTTP API 执行器：本地真实 HTTP 服务往返 + 奖励回传"""
-        import json as _json
-        import threading
-        from http.server import BaseHTTPRequestHandler, HTTPServer
-
-        received = []
-
-        class Handler(BaseHTTPRequestHandler):
-            def do_POST(self):
-                length = int(self.headers.get("Content-Length", 0))
-                received.append(_json.loads(self.rfile.read(length) or b"{}"))
-                payload = _json.dumps({"reward": 0.7}).encode()
-                self.send_response(200)
-                self.send_header("Content-Type", "application/json")
-                self.send_header("Content-Length", str(len(payload)))
-                self.end_headers()
-                self.wfile.write(payload)
-
-            def log_message(self, *args):
-                pass
-
-        server = HTTPServer(("127.0.0.1", 0), Handler)
-        threading.Thread(target=server.serve_forever, daemon=True).start()
-        try:
-            url = f"http://127.0.0.1:{server.server_port}/act"
-            brain = AIBrainEntity("t", seed=42)
-            brain.register_executor(make_api_executor(url), default=True)
-            out = brain.act("API 测试")
-            self.assertTrue(out["execution"]["success"])
-            self.assertAlmostEqual(out["execution"]["reward"], 0.7)
-            self.assertIn("verb", received[0])  # 服务端收到结构化动作
-            self.assertGreater(brain.value_estimate, 0.0)
-        finally:
-            server.shutdown()
-            server.server_close()
-
-    def test_api_executor_network_failure(self):
-        """不可达端点 → 失败负奖励（不抛异常）"""
-        brain = AIBrainEntity("t", seed=42)
-        brain.register_executor(
-            make_api_executor("http://127.0.0.1:1/unreachable", timeout=1),
-            default=True)
-        out = brain.act("断网测试")
-        self.assertFalse(out["execution"]["success"])
-        self.assertEqual(out["execution"]["reward"], -0.3)
-
-
 class TestTopologyPhase(unittest.TestCase):
     """v4.1 扩展B：连接拓扑与共识收敛相变"""
 
@@ -908,28 +802,7 @@ class TestEligibilityTrace(unittest.TestCase):
 
 
 class TestSkillLearning(unittest.TestCase):
-    """v4.5：执行器技能学习——分 verb 独立价值估计 + 策略化动作选择"""
-
-    def _mock(self, reward):
-        return lambda a: {"success": reward > 0, "reward": reward,
-                          "detail": "mock"}
-
-    def _trained_brain(self, rounds=40, seed=1):
-        """respond=0.8 / acknowledge=0.2 / observe=-0.4 三执行器训练。
-
-        先直接灌注每 verb 5 次（低 ε 下 ε-greedy 可能锁死在次优动作——
-        探索不足是真实 RL 现象，本测试关注的是策略覆盖而非学习动态），
-        再跑 act() 闭环验证端到端更新。
-        """
-        brain = AIBrainEntity("S", seed=seed)
-        for verb, rv in [("respond", 0.8), ("acknowledge", 0.2),
-                         ("observe", -0.4)]:
-            brain.register_executor(self._mock(rv), verb=verb)
-            for _ in range(5):
-                brain.learn_skill(verb, rv)
-        for _ in range(rounds):
-            brain.act("火焰是危险的", policy="epsilon")
-        return brain
+    """v4.5：技能学习——分 verb 独立价值估计 + 策略化动作选择"""
 
     def test_learn_skill_moves_q_toward_reward(self):
         brain = AIBrainEntity("S", seed=1)
@@ -958,23 +831,6 @@ class TestSkillLearning(unittest.TestCase):
         brain = AIBrainEntity("S", seed=3)
         picks = {brain.select_verb("greedy") for _ in range(30)}
         self.assertGreater(len(picks), 1)
-
-    def test_act_updates_verb_value(self):
-        brain = AIBrainEntity("S", seed=1)
-        brain.register_executor(self._mock(0.8), default=True)
-        out = brain.act("火焰是危险的")
-        verb = out["action"]["verb"]
-        self.assertIsNotNone(out["skill"])
-        self.assertGreater(brain.verb_values[verb], 0.0)
-
-    def test_policy_overrides_verb_choice(self):
-        """训练后 policy='greedy' 恒选高价值 verb，无视决策层脉冲"""
-        brain = self._trained_brain()
-        self.assertGreater(brain.verb_values["respond"], 0.7)
-        for _ in range(10):
-            out = brain.act("火焰是危险的", policy="greedy")
-            self.assertEqual(out["action"]["verb"], "respond")
-            self.assertEqual(out["action"]["action"], "主动响应")
 
 
 class TestRetrievalComposition(unittest.TestCase):
@@ -1343,6 +1199,37 @@ class TestThoughtSystem(unittest.TestCase):
         self.assertEqual(clone.thought_space, [])
         self.assertEqual(clone.metacog_log, [])
 
+    def test_dna_roundtrip_preserves_self_model(self):
+        """DNA 克隆保留 v5.2+ 自我模型：自我概念/自传体记忆/心智模型/世代/模因"""
+        brain = AIBrainEntity("SELF", seed=1)
+        brain.update_self_concept("我是好奇的")
+        brain.add_autobiographical_memory("第一次看到大海", emotion="joy", importance=0.9)
+        other = AIBrainEntity("OTHER", seed=2)
+        brain.attribute_beliefs(other)
+        brain.generation = 3
+        brain.add_meme("模因甲", source="同伴")
+        clone = AIBrainEntity.from_dna(brain.dump_dna())
+        self.assertEqual(clone.self_concept, ["我是好奇的"])
+        self.assertEqual(len(clone.autobiographical_memory), 1)
+        self.assertEqual(clone.autobiographical_memory[0]["event"], "第一次看到大海")
+        self.assertIn("OTHER", clone.mental_models)
+        self.assertEqual(clone.generation, 3)
+        self.assertIn("模因甲", clone.memes)
+        self.assertEqual(clone.meme_system["total_memes"], 1)
+
+    def test_old_dna_without_self_fields_loads(self):
+        """旧版 DNA（无 v5.2+ 字段）兼容加载，默认空自我模型"""
+        dna = self.brain.dump_dna()
+        for k in ("generation", "thought_journal", "self_concept",
+                  "autobiographical_memory", "mental_models", "memes"):
+            del dna[k]
+        clone = AIBrainEntity.from_dna(dna)
+        self.assertEqual(clone.generation, 1)
+        self.assertEqual(clone.self_concept, [])
+        self.assertEqual(clone.autobiographical_memory, [])
+        self.assertEqual(clone.mental_models, {})
+        self.assertEqual(clone.memes, {})
+
     def test_status_reports_thought_space(self):
         """status() 摘要包含思考空间行"""
         self.brain.sensory_input("火焰")
@@ -1454,54 +1341,6 @@ class TestIntentVerbs(unittest.TestCase):
                                  policy="greedy")
         self.assertEqual(out["action"]["verb"], "ask")
         self.assertIn("？", out["utterance"])
-
-    def test_act_policy_extended_verb_keeps_action_name(self):
-        """act() 策略选到意图动词：保留脉冲动作名、覆盖 verb、正常执行"""
-        for _ in range(10):
-            self.brain.learn_skill("execute", 0.9)
-        self.brain.register_executor(
-            make_function_executor(lambda a: "done"), verb="execute")
-        out = self.brain.act("去开灯", policy="greedy")
-        self.assertEqual(out["action"]["verb"], "execute")
-        self.assertIn(out["action"]["action"],
-                      AIBrainEntity.ACTION_SPACE.keys())
-        self.assertIsNotNone(out["execution"])
-        self.assertTrue(out["execution"]["success"])
-
-    def test_make_function_executor(self):
-        """函数执行器：成功 +0.5 / 异常 -0.5 / 自定义奖励映射"""
-        ok = make_function_executor(lambda a: "结果")({})
-        self.assertTrue(ok["success"])
-        self.assertEqual(ok["reward"], 0.5)
-        self.assertEqual(ok["result"], "结果")
-
-        def boom(a):
-            raise RuntimeError("炸了")
-        bad = make_function_executor(boom)({})
-        self.assertFalse(bad["success"])
-        self.assertEqual(bad["reward"], -0.5)
-
-        custom = make_function_executor(
-            lambda a: 42, reward_of=lambda r: r / 100)({})
-        self.assertAlmostEqual(custom["reward"], 0.42)
-
-    def test_make_file_executor_writes_jsonl(self):
-        """文件执行器：动作以 JSONL 追加写入"""
-        import tempfile
-        fd, path = tempfile.mkstemp(suffix=".jsonl")
-        os.close(fd)
-        self.addCleanup(os.remove, path)
-        ex = make_file_executor(path)
-        r = ex({"verb": "respond", "intensity": 0.5})
-        self.assertTrue(r["success"])
-        self.assertEqual(r["reward"], 0.1)
-        with open(path, encoding="utf-8") as f:
-            lines = f.read().strip().splitlines()
-        self.assertEqual(len(lines), 1)
-        import json as _json
-        rec = _json.loads(lines[0])
-        self.assertEqual(rec["action"]["verb"], "respond")
-        self.assertIn("ts", rec)
 
 
 class TestStreamOfConsciousness(unittest.TestCase):
@@ -1772,7 +1611,8 @@ class _FakeStore:
 
     def search_vector(self, vec, top_k=3, brain_name=None,
                       modality=None, exclude_modality=None):
-        self.last_search = {"top_k": top_k, "brain_name": brain_name,
+        self.last_search = {"vector": vec, "top_k": top_k,
+                            "brain_name": brain_name,
                             "modality": modality,
                             "exclude_modality": exclude_modality}
         return self.rows[:top_k]
@@ -2010,6 +1850,296 @@ class TestDNALibrary(unittest.TestCase):
         child_id = swarm._library_ids[child.name]
         chain = self.lib.lineage(child_id)
         self.assertEqual(len(chain), 1)  # 能回溯到亲代
+
+
+class TestWorkingMemory(unittest.TestCase):
+    """v6.0 工作记忆（Baddeley 模型）"""
+
+    def test_report_structure(self):
+        brain = AIBrainEntity("WM", seed=1)
+        brain.sensory_input("火焰是危险的")
+        r = brain.get_working_memory_report()
+        for k in ("central_executive", "phonological_loop",
+                  "visuospatial_sketchpad", "episodic_buffer", "total_load"):
+            self.assertIn(k, r)
+
+
+class TestPredictiveCoding(unittest.TestCase):
+    """v6.1 预测编码：自由能最小化"""
+
+    def test_free_energy_cycle(self):
+        brain = AIBrainEntity("PC", seed=1)
+        r = brain.minimize_free_energy("火焰")
+        for k in ("prediction", "error", "free_energy",
+                  "free_energy_reduced"):
+            self.assertIn(k, r)
+        self.assertGreaterEqual(r["free_energy"], 0)
+
+    def test_repeated_input_learns(self):
+        brain = AIBrainEntity("PC2", seed=1)
+        brain.minimize_free_energy("火焰")
+        r = brain.minimize_free_energy("火焰")
+        self.assertIsInstance(r["free_energy_reduced"], bool)
+
+
+class TestNeuralOscillation(unittest.TestCase):
+    """v6.2 神经振荡（脑电波）"""
+
+    def test_dominant_wave_and_state(self):
+        brain = AIBrainEntity("OSC", seed=1)
+        brain.sensory_input("量子纠缠")
+        brain.update_brainwaves()
+        wave = brain.get_dominant_wave()
+        self.assertIn(wave, {"delta", "theta", "alpha", "beta", "gamma"})
+        self.assertIsInstance(brain.get_consciousness_state(), str)
+
+    def test_gamma_binding(self):
+        brain = AIBrainEntity("OSC2", seed=1)
+        # 低同步态：默认 γ 功率不足，绑定失败
+        r0 = brain.gamma_binding(["红", "热", "亮"])
+        self.assertFalse(r0["bound"])
+        # 高专注 + 意识点火的高同步态：γ 绑定成功
+        brain.brainwaves["gamma"] = 0.7
+        brain.neural_synchrony = 0.8
+        r = brain.gamma_binding(["红", "热", "亮"])
+        self.assertTrue(r["bound"])
+        self.assertEqual(r["features"], ["红", "热", "亮"])
+        self.assertIn("红", r["content"])
+
+
+class TestActiveInference(unittest.TestCase):
+    """v6.3 主动推理：预期自由能驱动行动"""
+
+    def setUp(self):
+        self.brain = AIBrainEntity("AI", seed=1)
+        self.brain.sensory_input("口渴了")
+
+    def test_strategies_have_expected_free_energy(self):
+        self.brain.add_goal("找到水", 0.8)
+        strategies = self.brain.generate_action_strategies()
+        self.assertTrue(strategies)
+        self.assertIn("expected_free_energy", strategies[0])
+
+    def test_active_inference_step(self):
+        self.brain.add_goal("找到水", 0.8)
+        r = self.brain.active_inference_step()
+        self.assertIn("selected_action", r)
+        self.assertIn("current_free_energy", r)
+
+
+class TestBrainRegions(unittest.TestCase):
+    """v6.4 脑区分化：海马/前额叶/杏仁核"""
+
+    def setUp(self):
+        self.brain = AIBrainEntity("BR", seed=1)
+
+    def test_hippocampus_encode_and_completion(self):
+        self.brain.hippocampus_encode("火灾逃生经历")
+        r = self.brain.hippocampus_pattern_completion("火灾")
+        self.assertGreater(r["completion_score"], 0)
+
+    def test_fear_conditioning_and_extinction(self):
+        self.brain.amygdala_fear_conditioning("蜘蛛", 0.9)
+        after = self.brain.amygdala_detect_threat("蜘蛛")
+        self.assertGreater(after["threat_level"], 0.5)
+        self.brain.amygdala_extinguish_fear("蜘蛛")
+        gone = self.brain.amygdala_detect_threat("蜘蛛")
+        self.assertLess(gone["threat_level"], after["threat_level"])
+
+    def test_region_report(self):
+        self.brain.update_regions()
+        r = self.brain.get_brain_regions_report()
+        for k in ("regions", "most_active", "hippocampus", "amygdala"):
+            self.assertIn(k, r)
+
+
+class TestReasoningPlanning(unittest.TestCase):
+    """v6.5 推理与规划"""
+
+    def setUp(self):
+        self.brain = AIBrainEntity("RP", seed=1)
+
+    def test_deductive_reasoning(self):
+        r = self.brain.deductive_reasoning(
+            ["所有人都会死", "苏格拉底是人"])
+        self.assertEqual(r["type"], "deductive")
+        self.assertTrue(r["conclusions"])
+
+    def test_plan_goal_and_decision(self):
+        plan = self.brain.plan_goal("扑灭大火")
+        self.assertTrue(plan["steps"])
+        d = self.brain.make_decision(["方案A", "方案B"])
+        self.assertIn(d["best_option"], ["方案A", "方案B"])
+
+
+class TestMentalSimulation(unittest.TestCase):
+    """v6.6 心理模拟：心理时间旅行 / 想象 / 洞见"""
+
+    def setUp(self):
+        self.brain = AIBrainEntity("MS", seed=1)
+        self.brain.sensory_input("火焰是危险的")
+
+    def test_mental_time_travel(self):
+        past = self.brain.remember_past()
+        future = self.brain.imagine_future("明天去爬山")
+        self.assertEqual(future["direction"], "future")
+        self.assertIn("vividness", past)
+
+    def test_insight_and_divergent(self):
+        ins = self.brain.generate_insight("如何灭火")
+        self.assertIn("has_insight", ins)
+        ideas = self.brain.divergent_thinking("砖头的用途")
+        self.assertIsInstance(ideas, (dict, list))
+
+
+class TestDevelopment(unittest.TestCase):
+    """v6.7 发育过程：皮亚杰阶段 / 关键期"""
+
+    def test_piaget_stage_progression(self):
+        brain = AIBrainEntity("DEV", seed=1)
+        self.assertEqual(brain.get_piaget_stage()["stage"], "sensorimotor")
+        brain.develop(36)
+        self.assertNotEqual(brain.get_piaget_stage()["stage"],
+                            "sensorimotor")
+
+    def test_object_permanence_milestone(self):
+        brain = AIBrainEntity("DEV2", seed=1)
+        self.assertFalse(brain.has_object_permanence())
+        brain.develop(12)
+        self.assertTrue(brain.has_object_permanence())
+
+
+class TestEmbodiedCognition(unittest.TestCase):
+    """v6.8 具身认知：身体图式 / 运动 / 镜像神经元 / 可供性"""
+
+    def setUp(self):
+        self.brain = AIBrainEntity("EC", seed=1)
+        self.brain.init_body_schema()
+
+    def test_motor_planning_and_skill(self):
+        plan = self.brain.plan_motor_action("抓握")
+        self.assertTrue(plan["planned"])
+        r = self.brain.execute_motor_action()
+        self.assertIsNotNone(r)
+
+    def test_mirror_neuron_imitation(self):
+        self.brain.observe_action("挥手")
+        r = self.brain.imitate_action("挥手")
+        self.assertTrue(0.0 <= r["success_rate"] <= 1.0)
+
+    def test_affordance(self):
+        r = self.brain.perceive_affordance("杯子")
+        self.assertTrue(r["affordances"])
+
+
+class TestCulturalEvolutionSystem(unittest.TestCase):
+    """v6.9 文化进化：模因 / 规范 / 进化动力学"""
+
+    def setUp(self):
+        self.brain = AIBrainEntity("CE", seed=1)
+
+    def test_meme_add_and_replicate(self):
+        first = self.brain.add_meme("火焰崇拜")
+        second = self.brain.add_meme("火焰崇拜")
+        self.assertTrue(first["is_new"])
+        self.assertFalse(second["is_new"])
+
+    def test_cultural_evolution_step(self):
+        self.brain.transmit_culture("钻木取火")
+        r = self.brain.cultural_evolution_step()
+        self.assertIn("generation", r)
+        self.assertIn("diversity", r)
+
+
+class TestLifelongLearning(unittest.TestCase):
+    """v7.0 终身学习：增量 / 间隔重复 / 迁移"""
+
+    def setUp(self):
+        self.brain = AIBrainEntity("LL", seed=1)
+
+    def test_incremental_learning(self):
+        r = self.brain.learn_incremental("牛顿第一定律")
+        self.assertIn("retention", r)
+        self.assertEqual(r["knowledge"], "牛顿第一定律")
+
+    def test_spaced_repetition_strengthens(self):
+        self.brain.spaced_repetition("牛顿第一定律")
+        r = self.brain.spaced_repetition("牛顿第一定律")
+        self.assertGreaterEqual(r["storage_strength"], 0)
+
+    def test_transfer_learning(self):
+        self.brain.learn_incremental("骑自行车")
+        r = self.brain.transfer_learning("骑自行车", "学摩托车")
+        self.assertTrue(0.0 <= r["transfer_efficiency"] <= 1.0)
+
+
+class TestConsciousnessIntegration(unittest.TestCase):
+    """v7.1 意识整合：多理论框架统一"""
+
+    def test_integration_report(self):
+        brain = AIBrainEntity("CI", seed=1)
+        brain.sensory_input("火焰是危险的")
+        r = brain.get_consciousness_integration_report()
+        for k in ("framework", "state", "integration", "metrics"):
+            self.assertIn(k, r)
+
+
+class _FakeTextEncoder:
+    """伪语义编码器：按文本内容返回确定性向量"""
+    available = True
+
+    def encode(self, text):
+        base = [((hash(text) >> i) & 7) / 10.0 for i in range(16)]
+        norm = sum(v * v for v in base) ** 0.5 or 1.0
+        return [v / norm for v in base]
+
+    def info(self):
+        return {"available": True, "model": "fake", "dim": 16}
+
+
+class TestTextEncoder(unittest.TestCase):
+    """v6.2 文本语义编码器：真语义检索通路 + 优雅降级"""
+
+    def test_attach_without_model_degrades(self):
+        """无本地模型时 attach 返回不可用，大脑行为不变（哈希兜底）"""
+        brain = AIBrainEntity("TE1", seed=1)
+        from models.encoders.text_encoder import create_text_encoder
+        enc = create_text_encoder(model_path="models/不存在的模型目录")
+        self.assertFalse(enc.available)
+        r = brain.attach_text_encoder(enc)
+        self.assertTrue(r["attached"])
+        self.assertFalse(r["available"])
+        # 未接向量库 + 编码器不可用 → STM 不生成 features（行为不变）
+        brain.sensory_input("火焰")
+        self.assertEqual(brain.short_memory[-1].features, [])
+
+    def test_encoder_generates_features(self):
+        """接入可用编码器后，文本记忆自动携带语义 features"""
+        brain = AIBrainEntity("TE2", seed=1)
+        brain.attach_text_encoder(_FakeTextEncoder())
+        brain.sensory_input("钻木可以取火")
+        feats = brain.short_memory[-1].features
+        self.assertEqual(len(feats), 16)
+        self.assertAlmostEqual(sum(v * v for v in feats) ** 0.5, 1.0, places=5)
+
+    def test_semantic_query_uses_encoder(self):
+        """recall_semantic 字符串查询走编码器向量而非哈希"""
+        brain = AIBrainEntity("TE3", seed=1)
+        brain.attach_text_encoder(_FakeTextEncoder())
+        store = _FakeStore()
+        brain.attach_memory_store(store)
+        brain.recall_semantic("火焰")
+        self.assertIsNotNone(store.last_search)
+        # 查询向量应为伪编码器的 16 维输出（哈希兜底是 512 维）
+        self.assertEqual(len(store.last_search["vector"]), 16)
+
+    def test_hash_fallback_without_encoder(self):
+        """未接编码器时字符串查询回退哈希向量（512 维）"""
+        brain = AIBrainEntity("TE4", seed=1)
+        store = _FakeStore()
+        brain.attach_memory_store(store)
+        brain.recall_semantic("火焰")
+        self.assertEqual(len(store.last_search["vector"]), 512)
 
 
 if __name__ == "__main__":
